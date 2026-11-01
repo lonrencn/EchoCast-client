@@ -131,6 +131,28 @@ header{
 .custom-row input:focus{border-color:oklch(0.7 0.09 190/.55)}
 .custom-row input::placeholder{color:var(--ink-faint)}
 
+/* 附件上传：本机文件随通知交付 */
+.attach-row{margin-top:9px}
+.attach-btn{
+  font:inherit; font-size:12px; padding:7px 13px; border-radius:999px; cursor:pointer;
+  border:1px dashed oklch(0.7 0.09 190/.4); background:oklch(0.7 0.09 190/.07);
+  color:oklch(0.82 0.08 190); transition:all .2s;
+}
+.attach-btn:hover{background:oklch(0.7 0.09 190/.14); border-color:oklch(0.7 0.09 190/.6)}
+.attach-hint{margin:7px 0 0; font-size:11px; line-height:1.6; color:var(--ink-faint)}
+.file-chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px}
+.f-chip{
+  display:inline-flex; align-items:center; gap:7px; font-size:11px; padding:4px 6px 4px 10px;
+  border-radius:999px; border:1px solid var(--line); color:var(--ink-dim);
+  background:oklch(0.20 0.02 255/.6); max-width:100%;
+}
+.f-chip b{font-weight:500; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.f-chip button{
+  font:inherit; line-height:1; border:0; border-radius:50%; width:16px; height:16px;
+  background:oklch(0.28 0.02 255/.8); color:var(--ink-faint); cursor:pointer; padding:0;
+}
+.f-chip button:hover{color:oklch(0.85 0.12 25); background:oklch(0.3 0.08 25/.4)}
+
 /* 开关行 */
 .sw-row{display:flex; align-items:center; gap:10px; padding:7px 0; font-size:13px; color:var(--ink-dim)}
 .seg{display:flex; border:1px solid var(--line); border-radius:999px; padding:2px; margin-left:auto}
@@ -328,6 +350,28 @@ header{
   transition:transform .2s var(--ease);
 }
 .sheet .s-media img:hover{transform:scale(1.03)}
+.sheet .s-media video{
+  width:100%; border-radius:10px; border:1px solid var(--line); background:#000; max-height:240px;
+}
+.sheet .s-media .f-card{
+  display:flex; align-items:center; gap:11px; min-width:min(300px,100%); flex:1;
+  padding:10px 13px; border-radius:10px; border:1px solid var(--line);
+  background:oklch(0.20 0.02 255/.5);
+}
+.sheet .s-media .f-card .f-ic{font-size:18px; line-height:1}
+.sheet .s-media .f-card .f-main{flex:1; min-width:0; display:flex; flex-direction:column; gap:4px}
+.sheet .s-media .f-card .f-main b{
+  font-weight:500; font-size:12.5px; color:var(--ink); overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap;
+}
+.sheet .s-media .f-card .f-sub{font-size:10.5px; color:var(--ink-faint)}
+.sheet .s-media .f-card audio{width:100%; height:34px}
+.sheet .s-media .f-card a.dl{
+  flex:none; font-size:11px; padding:5px 13px; border-radius:999px; text-decoration:none;
+  border:1px solid oklch(0.8 0.135 185/.5); color:oklch(0.84 0.09 190);
+  transition:all .2s;
+}
+.sheet .s-media .f-card a.dl:hover{background:oklch(0.7 0.09 190/.15)}
 .sheet .s-close{
   margin-top:20px; width:100%; padding:10px; border-radius:12px; border:1px solid var(--line);
   background:transparent; color:var(--ink-dim); cursor:pointer; font-size:13px;
@@ -477,6 +521,12 @@ footer .foot-line a{color:var(--ink-dim)}
         <input id="customText" maxlength="40" placeholder="输入任务名，如：导出对账单" />
         <button class="btn" id="customSend" disabled>推送</button>
       </div>
+      <div class="attach-row">
+        <button class="attach-btn" id="attachBtn" type="button">📎 附上交付文件</button>
+        <input type="file" id="fileInput" multiple hidden />
+        <div class="file-chips" id="fileChips" hidden></div>
+      </div>
+      <p class="attach-hint">选中的文件会作为附件随通知「交付」——图片 / 音频 / 视频可直接预览，其他文件可下载。这就是客户端 media[] 附件走的同一条链路。</p>
     </div>
 
     <div class="console-sec">
@@ -949,9 +999,53 @@ $("customSend").addEventListener("click", sendCustom);
 $("customText").addEventListener("keydown", e=>{ if(e.key==="Enter") sendCustom(); });
 function sendCustom(){
   const v = $("customText").value.trim();
-  if(!v || !S.connected) return;
+  if((!v && !attachFiles.length) || !S.connected) return;
+  const name = v || `交付 ${attachFiles.length} 个文件`;
   $("customText").value = "";
-  runTask({name:v, prog1:44, prog2:79, end:"success", result:"完成 · 演示环境模拟执行，全程未弹任何系统提醒。"});
+  /* 本机文件 → media[]：真实客户端走的是服务端 URL + 预取缓存，
+     演示页里同源换成 blob 地址，链路形状一致（kind/name/size）。 */
+  const media = attachFiles.map(f=>({kind:kindOf(f.type), name:f.name, size:f.size, src:URL.createObjectURL(f)}));
+  attachFiles = []; renderChips();
+  runTask({
+    name, prog1:44, prog2:79, end:"success",
+    result: media.length
+      ? `完成 · 已交付 ${media.length} 个文件，点开通知即可预览 / 下载。`
+      : "完成 · 演示环境模拟执行，全程未弹任何系统提醒。",
+    media,
+  });
+}
+
+/* ═══════════════ 附件上传（演示文件交付链路） ═══════════════ */
+let attachFiles = [];
+$("attachBtn").addEventListener("click", ()=>$("fileInput").click());
+$("fileInput").addEventListener("change", e=>{
+  for(const f of e.target.files) attachFiles.push(f);
+  e.target.value = "";
+  renderChips();
+});
+$("fileChips").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  attachFiles.splice(+b.dataset.i, 1);
+  renderChips();
+});
+function renderChips(){
+  const box = $("fileChips");
+  box.innerHTML = attachFiles.map((f,i)=>
+    `<span class="f-chip">${MEDIA_ICONS[kindOf(f.type)]||"📄"} <b>${esc(f.name)}</b> · ${fmtSize(f.size)}<button data-i="${i}" title="移除">✕</button></span>`
+  ).join("");
+  box.hidden = attachFiles.length === 0;
+}
+const MEDIA_ICONS = {image:"🖼", audio:"🎧", video:"🎬", file:"📄"};
+function kindOf(mime){
+  return mime.startsWith("image/") ? "image"
+    : mime.startsWith("audio/") ? "audio"
+    : mime.startsWith("video/") ? "video" : "file";
+}
+function fmtSize(n){
+  if(!n || n<=0) return "";
+  if(n<1024) return n+" B";
+  if(n<1048576) return (n/1024).toFixed(0)+" KB";
+  return (n/1048576).toFixed(1)+" MB";
 }
 
 /* ═══════════════ 欢迎气泡 ═══════════════ */
@@ -998,7 +1092,12 @@ function openSheet(n){
   sc.style.borderColor = n.status==="failed" ? "oklch(0.68 0.16 25/.5)" : "oklch(0.8 0.135 185/.5)";
   $("sMeta").textContent = `${n.id} · ${new Date().toLocaleTimeString("zh-CN")}`;
   $("sResult").textContent = n.result || "（暂无详情文本）";
-  $("sMedia").innerHTML = (n.media||[]).map(m=>`<img src="${m.src}" alt="${esc(m.name)}" title="${esc(m.name)}" />`).join("");
+  $("sMedia").innerHTML = (n.media||[]).map(m=>{
+    if(m.kind==="video") return `<video controls preload="metadata" src="${m.src}" title="${esc(m.name)}"></video>`;
+    if(m.kind==="audio") return `<div class="f-card"><span class="f-ic">🎧</span><div class="f-main"><b>${esc(m.name)}</b><audio controls preload="metadata" src="${m.src}"></audio></div></div>`;
+    if(m.kind==="image") return `<img src="${m.src}" alt="${esc(m.name)}" title="${esc(m.name)}" />`;
+    return `<div class="f-card"><span class="f-ic">📄</span><div class="f-main"><b>${esc(m.name)}</b><span class="f-sub">${m.size?fmtSize(m.size)+" · ":""}点「下载」保存到本机</span></div><a class="dl" download="${esc(m.name)}" href="${m.src}">下载</a></div>`;
+  }).join("");
   $("sheetBack").classList.add("open");
 }
 function closeSheet(){

@@ -36,3 +36,5 @@ tools/bridge-msg*.md
 
 # 内部会话通信工具（含内网地址与 token），不开源
 tools/bridge.py
+
+tools/demo-deploy.py
