@@ -1,0 +1,8 @@
+# 这台机器上增量编译会卡死：rustc 在删除 incremental session 的锁文件时
+# 拿到 "拒绝访问 (os error 5)"，然后以 0% CPU 无限等待。表现是
+# `cargo check` / `tauri dev` 停在某个 crate 上二十分钟毫无进展。
+#
+# 关掉增量编译即可绕过。代价是每次多编译一些，但至少结果是确定的。
+# 如果以后换了盘或关掉杀软后不再复现，删掉这一段即可恢复增量。
+[env]
+CARGO_INCREMENTAL = "0"

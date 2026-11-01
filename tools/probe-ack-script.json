@@ -1,0 +1,7 @@
+[
+  {"at": 0, "data": "{\"op\":\"hello\",\"protocol\":\"1\",\"alias\":\"ack-probe\",\"labels\":[\"probe\"],\"device\":{\"device_id\":\"probe-ack\",\"hostname\":\"probe\",\"os\":\"windows\",\"app_version\":\"0.1.0\"}}"},
+  {"at": 0.2, "data": "{\"op\":\"subscribe\",\"topics\":[\"task.started\",\"task.running\",\"task.completed\",\"task.failed\",\"task.warning\",\"alert.critical\",\"alert.warn\",\"deploy.done\",\"flimx.*\"]}"},
+  {"at": 2.5, "data": "{\"op\":\"ack\",\"task_id\":\"task-sharewikiaction-131\",\"state\":\"seen\"}"},
+  {"at": 4.5, "data": "{\"op\":\"ack\",\"task_id\":\"probe-not-exist-ack\",\"state\":\"seen\"}"},
+  {"at": 6.5, "data": "{\"op\":\"ack\",\"task_id\":\"task-sharewikiaction-131\",\"state\":\"done\"}"}
+]

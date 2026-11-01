@@ -1,0 +1,36 @@
+{
+  "pack": "robot",
+  "version": 1,
+  "frame": 256,
+  "display": 40,
+  "baseline": 245,
+  "generated_at": "2026-10-31T16:59:20+08:00",
+  "actions": {
+    "idle": {
+      "file": "idle.webp",
+      "frames": 1,
+      "duration": 2400,
+      "loop": true
+    },
+    "success": {
+      "file": "success.webp",
+      "frames": 1,
+      "duration": 560,
+      "loop": false,
+      "hold": "last"
+    },
+    "fail": {
+      "file": "fail.webp",
+      "frames": 1,
+      "duration": 500,
+      "loop": false,
+      "hold": "last"
+    },
+    "running": {
+      "file": "running.webp",
+      "frames": 1,
+      "duration": 1600,
+      "loop": true
+    }
+  }
+}

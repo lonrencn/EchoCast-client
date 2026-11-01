@@ -1,0 +1,38 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 本地工作区数据（工作日志/记忆），不属于项目
+.workbuddy/
+.shots/
+
+# 与服务端同事的内部对接记录，含内网信息，不开源
+tools/bridge-msg*.md
+
+# 环境变量与密钥
+.env
+.env.*
+
+# 内部会话通信工具（含内网地址与 token），不开源
+tools/bridge.py

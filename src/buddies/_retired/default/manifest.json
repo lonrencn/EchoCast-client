@@ -1,0 +1,49 @@
+{
+  "pack": "default",
+  "version": 1,
+  "frame": 256,
+  "display": 40,
+  "baseline": 245,
+  "generated_at": "2026-10-31T16:53:17+08:00",
+  "actions": {
+    "idle": {
+      "file": "idle.webp",
+      "frames": 1,
+      "duration": 2400,
+      "loop": true
+    },
+    "success": {
+      "file": "success.webp",
+      "frames": 1,
+      "duration": 560,
+      "loop": false,
+      "hold": "last"
+    },
+    "fail": {
+      "file": "fail.webp",
+      "frames": 1,
+      "duration": 500,
+      "loop": false,
+      "hold": "last"
+    },
+    "idle_blink": {
+      "file": "idle_blink.webp",
+      "frames": 1,
+      "duration": 3200,
+      "loop": true
+    },
+    "hover": {
+      "file": "hover.webp",
+      "frames": 1,
+      "duration": 400,
+      "loop": false,
+      "hold": "last"
+    },
+    "sleep": {
+      "file": "sleep.webp",
+      "frames": 1,
+      "duration": 3000,
+      "loop": true
+    }
+  }
+}
