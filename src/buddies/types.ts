@@ -14,7 +14,9 @@ export type BuddyAction =
   | "running"
   | "success"
   | "fail"
-  | "sleep";
+  | "sleep"
+  /** 兴奋欢呼：通知里带可点开的 URL 时用 —— 「有好东西，快看」。 */
+  | "excited";
 
 /** 缺了这三个动作的包直接判为不合格 —— 否则会出现「失败配笑脸」。 */
 export const REQUIRED_ACTIONS: readonly BuddyAction[] = ["idle", "success", "fail"];
@@ -28,6 +30,7 @@ export const FALLBACK_CHAIN: Record<BuddyAction, BuddyAction[]> = {
   success: ["success", "idle"],
   fail: ["fail", "idle"],
   sleep: ["sleep", "idle"],
+  excited: ["excited", "success", "idle"],
 };
 
 export interface BuddyActionMeta {

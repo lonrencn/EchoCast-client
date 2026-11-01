@@ -14,7 +14,7 @@ const BROWSER_ARGS: &str =
 
 /// 菜单窗口逻辑尺寸。高了留白难看，按菜单项数量收口。
 const MENU_W: f64 = 264.0;
-const MENU_H: f64 = 224.0;
+const MENU_H: f64 = 262.0;
 
 /// 建托盘菜单窗口。幂等：已存在直接返回。
 /// 在 setup 里调用 —— Tauri 官方支持在 setup 建窗（与同步命令里建窗死锁是两回事）。
@@ -85,6 +85,21 @@ pub fn show_main_settings(app: AppHandle) {
         let _ = w.set_focus();
     }
     let _ = app.emit_to("main", "ec:open-settings", ());
+    if let Some(w) = app.get_webview_window("traymenu") {
+        let _ = w.hide();
+    }
+}
+
+/// 「消息回看」：打开主窗口并切到回看列表。
+/// 与设置同一套路：主窗口自己听事件切视图，托盘菜单只负责把人带过去。
+#[tauri::command]
+pub fn show_main_history(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+    let _ = app.emit_to("main", "ec:show-history", ());
     if let Some(w) = app.get_webview_window("traymenu") {
         let _ = w.hide();
     }

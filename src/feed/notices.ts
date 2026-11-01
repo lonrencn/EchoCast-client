@@ -8,7 +8,7 @@ import {
 } from "../types/notice";
 import { playSfx, sfxForStatus } from "../audio/sfx";
 import { isConnected, sendAck, sendAction } from "../settings/useSettings";
-import { isOpenableUrl, openExternal } from "../lib/open";
+import { isOpenableTarget, openExternal } from "../lib/open";
 import { isSurface, windowKind } from "../boot/windowKind";
 
 /**
@@ -25,11 +25,118 @@ export const MAX_VISIBLE = 3;
 /** 保留上限。常驻的失败/警告不参与淘汰。 */
 const MAX_STORED = 20;
 
-/** 终态停留时长。数字来自设计定稿：成功 5 秒、警告 12 秒、失败常驻。 */
-const DWELL: Record<string, number> = {
-  success: 5000,
-  warning: 12000,
-};
+/*
+ * 通知生命周期 = 常驻 + 已读。
+ *
+ * 通知浮出后**不再定时消失**。渐隐只来自用户的三个动作：
+ *   ① 悬停 10 秒（气泡上有倒计时条，移开鼠标即取消）→ 渐隐已读
+ *   ② 点气泡上的「已读」→ 立即收起
+ *   ③ 问询点了选项 / 动作按钮，走完流程
+ * 看过详情面板再关上，也算已读。没读过的通知被新通知挤出可视区时
+ * 折叠进「还有 N 条」，随时展开回看 —— 一条都不丢。
+ */
+
+/** 悬停多少毫秒算「已读」。 */
+const HOVER_FADE_MS = 5_000;
+
+/*
+ * ── 消息回看（历史）────────────────────────────
+ *
+ * 收起的通告不等于消失：每条通知的最新快照（含答复状态）进历史，
+ * 托盘「消息回看」能按任务名+时间翻出来，点一条就原样弹回桌面。
+ *
+ * 真相源在悬浮层（它负责显示与交互），历史写 localStorage ——
+ * 多窗口同源共享，主窗口的回看列表直接读；主窗口只读不写，
+ * 免得两边对同一条的「收起时刻」各说各话。
+ */
+
+export interface HistoryEntry {
+  notice: TaskNotice;
+  /** 答复快照。null = 这条还没人答（回放后仍可答复）。 */
+  answered: AnswerRecord | null;
+  /** 被收起的时刻；还在屏上的条目为 null。 */
+  removedAt: number | null;
+}
+
+const HISTORY_KEY = "echocast.history";
+const HISTORY_MAX = 100;
+
+const historyMap = reactive(new Map<string, HistoryEntry>());
+
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return;
+    const arr = JSON.parse(raw) as HistoryEntry[];
+    for (const e of arr) if (e?.notice?.id) historyMap.set(e.notice.id, e);
+  } catch {
+    /* 坏数据当没有，别让一条烂 JSON 弄哑整个回看 */
+  }
+}
+
+function saveHistory() {
+  try {
+    const arr = [...historyMap.values()]
+      .sort((a, b) => b.notice.timestamp - a.notice.timestamp)
+      .slice(0, HISTORY_MAX);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(arr));
+  } catch {
+    /* 存不下就算了，内存里还有这份 */
+  }
+}
+
+loadHistory();
+
+/** 主窗口打开回看页时调：悬浮层可能刚写过历史，重读一遍。 */
+export function reloadHistory(): void {
+  historyMap.clear();
+  loadHistory();
+}
+
+/** 回看列表：时间倒序。 */
+export const historyList = computed(() =>
+  [...historyMap.values()].sort((a, b) => b.notice.timestamp - a.notice.timestamp)
+);
+
+/** 快照进历史。悬浮层专属（见上）；系统自产的欢迎气泡不算消息。 */
+function snapshot(n: TaskNotice, removedAt: number | null) {
+  if (n.silent || !isSurface) return;
+  historyMap.set(n.id, {
+    notice: { ...n },
+    answered: answers.get(n.id) ?? null,
+    removedAt,
+  });
+  saveHistory();
+}
+
+/** 清空回看记录。 */
+export function clearHistory(): void {
+  historyMap.clear();
+  try {
+    localStorage.removeItem(HISTORY_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 把一条历史原样弹回桌面。
+ *
+ * 由主窗口回看列表发 `ec:notice-replay` 事件、悬浮层执行 —— 气泡、
+ * 问询选项、链接、答复回执全部走既有管线，回看不需要第二套交互。
+ * 关键一步是复位去重签名：这条通知的最后一帧八成和快照完全一致，
+ * 不复位的话 upsert 会把它当重放帧整个吞掉，点了没反应。
+ */
+export function replayEntry(e: HistoryEntry): boolean {
+  if (!e?.notice?.id) return false;
+  historyMap.set(e.notice.id, e); // 本机没有这条历史时也能补齐
+  saveHistory();
+  lastSig.delete(e.notice.id);
+  if (e.answered) answers.set(e.notice.id, e.answered);
+  else answers.delete(e.notice.id);
+  upsert({ ...e.notice });
+  return true;
+}
 
 const timers = new Map<string, number>();
 
@@ -57,11 +164,21 @@ export const feedSource = ref<"pending" | "tauri" | "browser" | "none">("pending
 
 export const notices = computed(() => list.value);
 
-/** 浮层里实际渲染的那几条。 */
-export const visible = computed(() => list.value.slice(0, MAX_VISIBLE));
+/** 「还有 N 条」是否被点开。展开后全部滚出显示。 */
+export const expanded = ref(false);
+export function toggleExpanded() {
+  expanded.value = !expanded.value;
+}
 
-/** 被折叠的条数。 */
-export const overflow = computed(() => Math.max(0, list.value.length - MAX_VISIBLE));
+/** 浮层里实际渲染的那几条。展开时全量。 */
+export const visible = computed(() =>
+  expanded.value ? list.value : list.value.slice(0, MAX_VISIBLE)
+);
+
+/** 被折叠的条数。展开时为 0。 */
+export const overflow = computed(() =>
+  expanded.value ? 0 : Math.max(0, list.value.length - MAX_VISIBLE)
+);
 
 /** 面板里正在看的那条。通知被清掉时自动变成 null，面板跟着收起。 */
 export const sheetNotice = computed(
@@ -69,19 +186,42 @@ export const sheetNotice = computed(
 );
 
 export function openSheet(id: string) {
-  // 正在读的这条不能被驻留定时器收走：5 秒后人还在面板里看全文，
-  // 气泡一消失，面板跟着一起关（dismiss 会顺带清 sheetId）。
+  // 正在读的这条不能被悬停渐隐收走：人还在看，气泡一消失，面板跟着一起关。
   clearTimer(id);
   sheetId.value = id;
 }
 
 export function closeSheet() {
-  // 先记住刚才在看哪条，再清面板 —— 关掉之后要给它恢复驻留节奏：
-  // 读完了就该像没读过一样自然消失，而不是因为被看过就永远赖着。
+  // 看完详情 = 已读：关面板即收起，符合「常驻 + 已读」模型。
   const viewed = sheetId.value;
   sheetId.value = null;
-  const n = list.value.find((x) => x.id === viewed);
-  if (n) schedule(n);
+  if (viewed && list.value.some((x) => x.id === viewed)) dismiss(viewed);
+}
+
+/**
+ * 已读渐隐：鼠标滑过就算读过 —— 感应到后 5 秒自动收起。
+ * 一旦感应就不撤销：移开鼠标不影响，人已经「碰到」过这条通知了。
+ * 问询不调用这个（常驻等人处理，只能「忽略」或作答）。
+ */
+export function armReadFade(id: string) {
+  if (timers.has(id)) return; // 已经在倒计时，别重置 —— 滑过一次就是一次
+  timers.set(id, window.setTimeout(() => dismiss(id), HOVER_FADE_MS));
+}
+
+/**
+ * 暂停某条的已读倒计时。
+ *
+ * 交付清单 / 详情开着的时候，人正在里面挑文件，气泡不能被判成
+ * 「已读完」收走 —— 清单跟着气泡一起消失等于把交付物没收。
+ * 移开鼠标再滑回来会重新计时（armReadFade 只看 timers 里有没有）。
+ */
+export function holdReadFade(id: string) {
+  clearTimer(id);
+}
+
+/** 兼容保留：感应过的通知不因移开鼠标而取消倒计时。 */
+export function cancelReadFade(_id: string) {
+  /* no-op */
 }
 
 /** 某条通知的答复状态。组件拿它决定显示「等你答复…」还是「已答复 · X」。 */
@@ -95,20 +235,6 @@ function clearTimer(id: string) {
     clearTimeout(t);
     timers.delete(id);
   }
-}
-
-/** 只有非常驻的终态才自动消失；执行中常驻到出结果为止。 */
-function schedule(n: TaskNotice) {
-  if (n.status === "running") return;
-  clearTimer(n.id);
-  if (isSticky(n)) return; // 失败/警告：用户没处理就不走
-  // 自产的系统气泡（欢迎）多留几秒：它不是在报任务，是在报「通知从哪冒出来」，
-  // 用户可能正好在看别处，5 秒根本来不及抬头
-  const ms = n.silent ? 8000 : DWELL[n.status] ?? 5000;
-  timers.set(
-    n.id,
-    window.setTimeout(() => dismiss(n.id), ms)
-  );
 }
 
 function trimStore() {
@@ -244,14 +370,16 @@ export function upsert(n: TaskNotice) {
     list.value.unshift(n);
     trimStore();
   }
-  schedule(n);
   announce(before, n);
   // 只在「刚刚变成问询」时起追问；同一轮的问询被重复推送不该重算次数
   if (isAsk(n) && (!wasAsk || i < 0)) startNag(n);
   if (!isAsk(n)) stopNag(n.id);
+  snapshot(n, null); // 回看历史：永远留最新状态（含答复）
 }
 
 export function dismiss(id: string) {
+  const gone = list.value.find((x) => x.id === id);
+  if (gone) snapshot(gone, Date.now()); // 收起前留档，回看列表里还有它
   clearTimer(id);
   clearConfirm(id);
   stopNag(id);
@@ -265,6 +393,7 @@ export function dismiss(id: string) {
 
 export function dismissAll() {
   for (const n of list.value) {
+    snapshot(n, Date.now());
     clearTimer(n.id);
     clearConfirm(n.id);
     stopNag(n.id);
@@ -287,8 +416,6 @@ export function dismissAll() {
  */
 /** 等回复执的最长时间。超过就标「未确认」，但仍然保留答复记录。 */
 const CONFIRM_WAIT = 4500;
-/** 标了「未确认」之后还留多久。比正常 6 秒长，因为这条信息本身要人读。 */
-const UNCONFIRMED_DWELL = 20_000;
 
 const confirmTimers = new Map<string, number>();
 
@@ -314,16 +441,11 @@ export async function answerAsk(
     return res;
   }
 
-  // 答复完还赖在屏幕上就变成新的噪音：给 6 秒让人看见自己选了什么，然后收掉。
-  // 服务端若还要继续，会推同 id 的新状态，到时会重新出现。
+  // 答复后气泡**不再自动收起**：「已答复 · X」常驻显示，用户点「已读」
+  // 或悬停 10 秒才收。服务端若还要继续，会推同 id 的新状态覆盖上来。
   //
-  // 这 6 秒里如果服务端回 nack，`applyActionResult` 会把定时器撤掉 ——
-  // 收掉一个「没答上」的气泡，等于把唯一的线索也收了。
-  clearTimer(noticeId);
-  timers.set(
-    noticeId,
-    window.setTimeout(() => dismiss(noticeId), 6000)
-  );
+  // 如果服务端回 nack，`applyActionResult` 会把答复记录改回失败态，
+  // 气泡上重新出现可重选的提示 —— 常驻反而让这条线索更稳。
 
   // 等服务端表态。**这一步不是可选的礼貌**：现在的服务端完全不处理上行帧，
   // 没有它就等于给用户看一个绿色的「已答复」，而对面什么都没发生。
@@ -335,12 +457,6 @@ export async function answerAsk(
       const rec = answers.get(noticeId);
       if (!rec || rec.failed || rec.unconfirmed) return;
       answers.set(noticeId, { ...rec, unconfirmed: true });
-      // 没被确认的事多留一会儿，否则用户来不及读到就消失了。
-      clearTimer(noticeId);
-      timers.set(
-        noticeId,
-        window.setTimeout(() => dismiss(noticeId), UNCONFIRMED_DWELL)
-      );
     }, CONFIRM_WAIT)
   );
 
@@ -490,7 +606,7 @@ export async function runAction(noticeId: string, actionId: string) {
   // 服务端契约里 payload 就是一个 URL（`{label:"查看结果", url:"…"}`）——
   // 之前只发 action 不打开，用户看到的是「点了没反应，气泡还消失了」。
   let opened = false;
-  if (payload && isOpenableUrl(payload)) {
+  if (payload && isOpenableTarget(payload)) {
     opened = await openExternal(payload);
   }
 
@@ -607,6 +723,11 @@ export function startFeed(): Promise<void> {
         // 而不是等到第一条真任务才知道灯条长什么样。
         await listen("ec:welcome", () => {
           if (isSurface) showWelcome();
+        });
+        // 消息回看：主窗口的回看列表点了某条，历史快照整体发过来，
+        // 悬浮层负责把它原样弹回桌面（答复/链接交互全走既有管线）。
+        await listen<HistoryEntry>("ec:notice-replay", (e) => {
+          if (isSurface && e.payload) replayEntry(e.payload);
         });
         return;
       } catch (err) {

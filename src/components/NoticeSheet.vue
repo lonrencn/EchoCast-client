@@ -10,6 +10,7 @@ import {
 import { toBubbleView } from "../types/adapt";
 import { copyText, isOpenableUrl, looksLikePath, openExternal } from "../lib/open";
 import MediaGallery from "./MediaGallery.vue";
+import LinkText from "./LinkText.vue";
 
 /**
  * 通知详情面板。
@@ -48,13 +49,20 @@ const detail = computed(() => (view.value?.detail ?? "").trim());
 /** 详情是一个地址时，展示成链接行而不是一段文本。 */
 const urlTarget = computed(() => (isOpenableUrl(detail.value) ? detail.value : ""));
 /**
- * 本机路径单独处理：只给复制，不给「打开」。
- * 渲染节点上的产物路径对这台机器没有意义，而「服务端给什么就打开什么」
- * 等于把本机任意路径变成远程可执行入口。
+ * 本机路径：允许交给系统打开（sys_open 侧把关存在性与可执行扩展名），
+ * 但要留复制 —— 渲染节点上的产物路径对这台机器没意义，开了要明说。
  */
 const pathTarget = computed(() =>
   !urlTarget.value && looksLikePath(detail.value) ? detail.value : ""
 );
+
+/** 打开一个本机路径。失败原因一句话摆出来，绝不静默。 */
+async function openPath() {
+  if (!pathTarget.value) return;
+  const ok = await openExternal(pathTarget.value);
+  flash.value = ok ? "已交给系统打开" : "打不开：文件可能不在这台机器上";
+  window.setTimeout(() => (flash.value = ""), 2200);
+}
 
 const copied = ref(false);
 const flash = ref("");
@@ -156,17 +164,18 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
           </span>
         </div>
 
-        <!-- 本机路径：只复制不打开，并且明说为什么不打开 -->
+        <!-- 本机路径：可交给系统打开（可执行文件由 Rust 侧拒绝），并留复制 -->
         <div v-else-if="pathTarget" class="link">
-          <span class="link-label">产出路径 · 本机路径不代开</span>
+          <span class="link-label">产出路径</span>
           <code class="link-url" :title="pathTarget">{{ pathTarget }}</code>
           <span class="link-acts">
-            <button class="mini primary" @click="copyDetail">{{ copied ? "已复制" : "复制路径" }}</button>
+            <button class="mini primary" @click="openPath">打开</button>
+            <button class="mini" @click="copyDetail">{{ copied ? "已复制" : "复制路径" }}</button>
           </span>
         </div>
 
-        <!-- 文本型详情：日志尾部 / 长说明。可滚动，不裁成三行 -->
-        <pre v-else-if="detail" class="detail">{{ detail }}</pre>
+        <!-- 文本型详情：日志尾部 / 长说明。可滚动，不裁成三行；链接可点 -->
+        <pre v-else-if="detail" class="detail"><LinkText :text="detail" pre /></pre>
 
         <!-- 多媒体附件：图片网格 / 音视频播放器 / 文件卡片。
              running 状态也显示 —— 执行中先给封面是合理诉求 -->

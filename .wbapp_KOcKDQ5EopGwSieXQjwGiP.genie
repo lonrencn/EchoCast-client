@@ -1,0 +1,5 @@
+appId: wbapp_KOcKDQ5EopGwSieXQjwGiP
+name: EchoCast 互动演示
+localDir: G:\opencodespace\EchoCast-client\demo
+appType: web
+entryHtml: index.html

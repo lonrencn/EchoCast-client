@@ -9,6 +9,7 @@ mod models;
 mod overlay;
 mod proto;
 mod settings;
+mod sysopen;
 mod traymenu;
 mod wire;
 
@@ -56,8 +57,15 @@ pub fn run() {
                 eprintln!("[tray] {e}（托盘菜单将不可用，其余功能不受影响）");
             }
 
+            // 托盘图标 = robot 头像特写（icono 泛应用图标的替代品，用户一眼认出形象）。
+            // PNG 编进二进制，运行期解码一次；坏图标属于「装包不完整」，直接崩给开发者看。
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!(
+                "../icons/tray.png"
+            ))
+            .expect("托盘图标 tray.png 解码失败");
+
             let _tray = TrayIconBuilder::with_id("main-tray")
-                .icon(app.default_window_icon().expect("缺应用图标").clone())
+                .icon(tray_icon)
                 .tooltip("EchoCast — 关闭窗口后仍在托盘运行")
                 // 菜单不走系统绘制：左/右键都弹自绘菜单窗口
                 .show_menu_on_left_click(false)
@@ -146,9 +154,11 @@ pub fn run() {
             guides::open_local_dir,
             media::media_fetch,
             media::media_open,
+            sysopen::sys_open,
             traymenu::tray_toggle_sound,
             traymenu::tray_menu_hide,
             traymenu::show_main_settings,
+            traymenu::show_main_history,
             traymenu::quit_app,
         ])
         .run(tauri::generate_context!())

@@ -2,7 +2,19 @@
 import { computed } from "vue";
 import TaskBubbleGlow from "./TaskBubbleGlow.vue";
 import { toBubbleView } from "../types/adapt";
-import { answeredFor, openSheet, overflow, runAction, visible } from "../feed/notices";
+import {
+  answeredFor,
+  armReadFade,
+  answerAsk,
+  dismiss,
+  expanded,
+  holdReadFade,
+  openSheet,
+  overflow,
+  runAction,
+  toggleExpanded,
+  visible,
+} from "../feed/notices";
 
 const items = computed(() =>
   visible.value.map((n) => ({
@@ -20,12 +32,20 @@ const items = computed(() =>
         <TaskBubbleGlow
           v-bind="it.view"
           @action="(a: string) => runAction(it.id, a)"
-          @open="openSheet(it.id)"
+          @answer="(oid: string) => answerAsk(it.id, oid)"
+          @dismiss="dismiss(it.id)"
+          @read-fade="(on: boolean) => on && armReadFade(it.id)"
+          @hold-fade="holdReadFade(it.id)"
+          @open-sheet="openSheet(it.id)"
         />
       </div>
     </TransitionGroup>
 
-    <p v-if="overflow > 0" class="more">还有 {{ overflow }} 条</p>
+    <!-- 被挤出的未读通知不丢：点开全部滚出，一条条看完 -->
+    <button v-if="overflow > 0" class="more" @click="toggleExpanded">
+      还有 {{ overflow }} 条未响应 · 点击查看
+    </button>
+    <button v-else-if="expanded" class="more" @click="toggleExpanded">收起</button>
   </div>
 </template>
 
@@ -48,15 +68,22 @@ const items = computed(() =>
 }
 
 .more {
-  margin: 0;
+  font: inherit;
   font-size: 11px;
   letter-spacing: 0.03em;
   color: #6c7c98;
-  padding: 3px 10px;
+  padding: 5px 12px;
   border-radius: 999px;
   background: rgba(10, 16, 28, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.07);
+  cursor: pointer;
   pointer-events: auto;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+
+.more:hover {
+  color: #9fe8cd;
+  border-color: rgba(47, 217, 164, 0.35);
 }
 
 /* 入场比退场慢：浮上来要有分量，离开要利落 */

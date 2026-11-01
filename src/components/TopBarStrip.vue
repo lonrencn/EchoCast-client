@@ -4,7 +4,7 @@ import TopBarSegment from "./TopBarSegment.vue";
 import MuteButton from "./MuteButton.vue";
 import { useBuddy } from "../buddies/useBuddy";
 import type { BuddyAction } from "../buddies/types";
-import { notices, answeredFor } from "../feed/notices";
+import { dismiss as dismissNotice, notices, answeredFor } from "../feed/notices";
 import { toBubbleView, type BubbleView } from "../types/adapt";
 
 /**
@@ -45,7 +45,15 @@ const emit = defineEmits<{
   action: [id: string, actionId: string];
   settings: [];
   sheet: [id: string];
+  /** 演示模式（外部传 items）时把关闭事件抛给宿主处理。 */
+  dismiss: [id: string];
 }>();
+
+/** 点一段 / ✕ = 已读收起。真实 feed 直接关；外部数据源交给宿主。 */
+function onDismiss(id: string) {
+  if (props.items) emit("dismiss", id);
+  else dismissNotice(id);
+}
 
 const rows = computed<BarRow[]>(() => {
   const all: BarRow[] = props.items
@@ -127,6 +135,7 @@ const breathing = computed(
           :dense="rows.length > 1"
           @action="(a: string) => emit('action', r.id, a)"
           @sheet="emit('sheet', r.id)"
+          @dismiss="onDismiss(r.id)"
         />
       </TransitionGroup>
 

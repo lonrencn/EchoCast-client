@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import NoticeStack from "./components/NoticeStack.vue";
 import TopBarStrip from "./components/TopBarStrip.vue";
 import NoticeSheet from "./components/NoticeSheet.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
+import HistoryPanel from "./components/HistoryPanel.vue";
 import TrayMenu from "./components/TrayMenu.vue";
 import { openSheet, runAction, startFeed } from "./feed/notices";
 import { applyOverlay, loadSettings, toggleSound } from "./settings/useSettings";
 import { isSurface, windowKind } from "./boot/windowKind";
+
+/** 主窗口两块视图：设置 / 消息回看。托盘菜单按需把人带到其中一块。 */
+const mainView = ref<"settings" | "history">("settings");
 
 /** 设置要先把上次的地址和形象包读进来，再判断走哪条数据源。 */
 onMounted(async () => {
@@ -19,10 +23,12 @@ onMounted(async () => {
 
   void startFeed();
 
-  // 悬浮窗口的摆位与显示由主窗口驱动：它读得到 display_mode，
-  // 悬浮窗口自己不该再猜一遍。
+  // 主窗口听托盘的调度：回看 / 设置，切到对应视图。
   if (windowKind === "main") {
     await applyOverlay();
+    const { listen } = await import("@tauri-apps/api/event");
+    await listen("ec:show-history", () => (mainView.value = "history"));
+    await listen("ec:open-settings", () => (mainView.value = "settings"));
   }
 });
 
@@ -69,9 +75,13 @@ async function emitOpenSettings() {
     <NoticeSheet />
   </template>
 
-  <!-- 主窗口 = 设置窗口。通知走桌面悬浮层，这里不再演示任何东西 -->
+  <!-- 主窗口 = 设置 / 消息回看。通知走桌面悬浮层，这里不再演示任何东西 -->
   <main v-else class="home">
-    <SettingsPanel embedded />
+    <HistoryPanel
+      v-if="mainView === 'history'"
+      @back="mainView = 'settings'"
+    />
+    <SettingsPanel v-else embedded />
     <NoticeSheet />
   </main>
 </template>

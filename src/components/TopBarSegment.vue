@@ -9,7 +9,7 @@ import type { BubbleView } from "../types/adapt";
  * 谁先被牺牲是有顺序的 —— 时间 → 结果 → 次要动作 → 执行方。
  * 顺序反过来就会先丢掉任务名，那一段就彻底读不懂了。
  */
-const emit = defineEmits<{ action: [id: string]; sheet: [] }>();
+const emit = defineEmits<{ action: [id: string]; sheet: []; dismiss: [] }>();
 
 const props = defineProps<{
   view: BubbleView;
@@ -47,6 +47,7 @@ const hint = computed(() =>
     :class="[`is-${view.state}`, { hovering, dense }]"
     :style="{ '--accent': accent }"
     :title="hint"
+    @click="emit('dismiss')"
     @mouseenter="hovering = true"
     @mouseleave="hovering = false"
   >
@@ -96,6 +97,19 @@ const hint = computed(() =>
 
     <span class="time">{{ view.time }}</span>
 
+    <!-- Windows 习惯的 ✕：点一下就关掉这段，不用解释、不用学习 -->
+    <button class="x" aria-label="关闭这条通知" title="关闭" @click.stop="emit('dismiss')">
+      <svg viewBox="0 0 10 10" width="9" height="9" aria-hidden="true">
+        <path
+          d="M1.8 1.8 8.2 8.2M8.2 1.8 1.8 8.2"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+        />
+      </svg>
+    </button>
+
     <!-- 进度不另起一条：直接点亮本段底部那根发丝线 -->
     <span v-if="pct !== null" class="prog" aria-hidden="true">
       <i :style="{ width: `${pct}%` }" />
@@ -114,6 +128,8 @@ const hint = computed(() =>
   padding: 0 14px;
   box-sizing: border-box;
   transition: background 140ms ease;
+  /* 点一段 = 收起这条通知（Windows 的「点窗口就没了」直觉） */
+  cursor: pointer;
 }
 
 .seg + .seg::before {
@@ -236,6 +252,32 @@ const hint = computed(() =>
   font-size: 10px;
   color: #6b7a94;
   font-variant-numeric: tabular-nums;
+}
+
+/* ✕ 关闭钮：平时低调，悬停浮现 —— 和气泡的「已读」同一个语言 */
+.x {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #71809c;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.seg.hovering .x {
+  opacity: 1;
+}
+
+.x:hover {
+  color: #ffb3ba;
+  background: rgba(255, 77, 94, 0.12);
 }
 
 /* ── 动作 ───────────────────────────────── */

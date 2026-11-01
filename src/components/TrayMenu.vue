@@ -50,6 +50,11 @@ async function openSettings() {
   await invoke("show_main_settings");
 }
 
+async function openHistory() {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("show_main_history");
+}
+
 async function quit() {
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("quit_app");
@@ -126,6 +131,31 @@ onMounted(async () => {
       </svg>
       <span class="label">提示音</span>
       <span class="pill" :class="{ on: soundOn }">{{ soundOn ? "开" : "已静音" }}</span>
+    </button>
+
+    <button class="item" @click="openHistory">
+      <svg class="ic" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.4" />
+        <path
+          d="M8 4.6V8l2.4 1.6"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      <span class="label">消息回看</span>
+      <svg class="go" viewBox="0 0 14 14" width="11" height="11" aria-hidden="true">
+        <path
+          d="M2.5 7h8M7.4 3.6 10.8 7l-3.4 3.4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
     </button>
 
     <button class="item" @click="openSettings">

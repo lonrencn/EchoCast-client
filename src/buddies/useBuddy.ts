@@ -34,7 +34,7 @@ function ensureUserPacks() {
 /** 预加载过的包，避免重复解码。 */
 const warmed = new Set<string>();
 
-const PREFETCH: BuddyAction[] = ["idle", "success", "fail", "running"];
+const PREFETCH: BuddyAction[] = ["idle", "success", "fail", "running", "excited"];
 
 /**
  * 组件侧唯一入口。组件只声明「我要哪个包 + 哪个状态」，

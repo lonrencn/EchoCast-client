@@ -53,6 +53,17 @@ pub struct RawNotice {
     pub media: Option<Vec<RawMedia>>,
     pub attachments: Option<Vec<RawMedia>>,
     pub files: Option<Vec<RawMedia>>,
+    /// BROADCAST v1 信封的结构化载荷：`data.url` 是机器可读链接字段
+    /// （2026-11-01 与服务端对齐：text 裸 URL 给人看，data.url 给程序读）。
+    pub data: Option<RawData>,
+    /// 顶层直接带 url 的写法也收，处理逻辑与 data.url 相同。
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct RawData {
+    pub url: Option<String>,
 }
 
 /// 媒体附件的宽松输入。url 的字段名各服务端写法不一，一次收齐。
@@ -154,6 +165,19 @@ fn field_of(card: &RawCard, labels: &[&str]) -> Option<String> {
 
 fn non_empty(s: &Option<String>) -> Option<String> {
     s.as_ref().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+}
+
+/// 本机绝对路径的样子：`C:\…`、`C:/…`、`\\server\share`、`/home/…`。
+/// `data.url` 里给了路径时也要能开（sys_open 侧再做存在性与扩展名把关）。
+fn looks_like_path(s: &str) -> bool {
+    let s = s.trim();
+    let mut it = s.chars();
+    if let (Some(c), Some(':')) = (it.next(), it.next()) {
+        if c.is_ascii_alphabetic() {
+            return true;
+        }
+    }
+    s.starts_with('\\') || s.starts_with('/')
 }
 
 /// topic → status。服务端的 topic 命名是它自己的，这里只做包含式匹配，
@@ -401,6 +425,27 @@ impl RawNotice {
             }
         }
 
+        // data.url / url：服务端的机器可读链接字段（BROADCAST v1 对齐）。
+        // 没有别的动作时补一个「打开链接 / 打开文件」主按钮；已有动作说明
+        // 服务端自己安排了按钮，不越俎代庖。http(s) 与本机绝对路径都收
+        // （路径由 sys_open 侧把关：存在性 + 拒绝可执行扩展名）。
+        let data_url = non_empty(&self.url).or_else(|| {
+            self.data.as_ref().and_then(|d| non_empty(&d.url))
+        });
+        if let Some(u) = data_url {
+            let l = u.to_lowercase();
+            let is_http = l.starts_with("http://") || l.starts_with("https://");
+            let is_path = looks_like_path(&u);
+            if (is_http || is_path) && actions.is_empty() {
+                actions.push(NoticeAction {
+                    id: "view".into(),
+                    label: if is_http { "打开链接".into() } else { "打开文件".into() },
+                    style: ActionStyle::Primary,
+                    payload: Some(u),
+                });
+            }
+        }
+
         // 问询：`ask` 对象优先；没有就把平铺的 question + options 拼一个。
         // 少于两个选项的当普通通知处理 —— 只有一个「选项」的问询只是按钮。
         let ask = {
@@ -561,6 +606,51 @@ mod tests {
         let v: serde_json::Value =
             serde_json::from_str(r#"{"id":"t1","task":"x","timestamp":1790000000}"#).unwrap();
         assert_eq!(from_value(v).unwrap().timestamp, 1_790_000_000_000);
+    }
+
+    #[test]
+    fn data_url_becomes_open_action() {
+        // BROADCAST v1：text 给人看（夹裸 URL），data.url 给程序读。
+        // 没有自带动作时补「打开链接」；只认 http(s)。
+        let v: serde_json::Value = serde_json::from_str(
+            r#"{
+              "topic": "task.completed",
+              "text": "首推完成 - 详见 https://gitea.example.com/bot/x",
+              "data": {"url": "https://gitea.example.com/bot/x/commit/d55ab62"}
+            }"#,
+        )
+        .unwrap();
+        let n = from_value(v).expect("data.url 帧应是通知");
+        assert_eq!(n.actions.len(), 1);
+        assert_eq!(n.actions[0].id, "view");
+        assert_eq!(n.actions[0].style, ActionStyle::Primary);
+        assert_eq!(
+            n.actions[0].payload.as_deref(),
+            Some("https://gitea.example.com/bot/x/commit/d55ab62")
+        );
+
+        // 已有动作时不覆盖；非 http 的 url 不给按钮
+        let with_actions = r#"{"id":"t","task":"x","actions":[{"id":"a","label":"接单"}],"data":{"url":"https://e.com"}}"#;
+        let n2 = from_value(serde_json::from_str::<serde_json::Value>(with_actions).unwrap()).unwrap();
+        assert_eq!(n2.actions[0].id, "a", "已有动作不该被 data.url 顶掉");
+
+        let bad = r#"{"topic":"task.completed","text":"x","data":{"url":"file:///C:/x"}}"#;
+        let n3 = from_value(serde_json::from_str::<serde_json::Value>(bad).unwrap()).unwrap();
+        assert!(n3.actions.is_empty(), "file: 协议不给打开按钮");
+    }
+
+    #[test]
+    fn path_data_url_becomes_open_file() {
+        // 渲染节点把产物路径放进 data.url：本机路径也要能开（「打开文件」）。
+        // file:// 伪协议不收 —— 前缀伪装成路径的一律拒绝。
+        let v: serde_json::Value = serde_json::from_str(
+            r#"{"topic":"task.completed","text":"渲染完成 - G:\\out\\report.mp4","data":{"url":"G:\\out\\report.mp4"}}"#,
+        )
+        .unwrap();
+        let n = from_value(v).expect("路径型 data.url 应是通知");
+        assert_eq!(n.actions.len(), 1);
+        assert_eq!(n.actions[0].label, "打开文件");
+        assert_eq!(n.actions[0].payload.as_deref(), Some("G:\\out\\report.mp4"));
     }
 
     #[test]
