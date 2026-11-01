@@ -9,6 +9,7 @@ import {
 } from "../feed/notices";
 import { toBubbleView } from "../types/adapt";
 import { copyText, isOpenableUrl, looksLikePath, openExternal } from "../lib/open";
+import { isSurface } from "../boot/windowKind";
 import MediaGallery from "./MediaGallery.vue";
 import LinkText from "./LinkText.vue";
 
@@ -128,7 +129,10 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 <template>
   <Teleport to="body">
     <Transition name="veil">
-      <div v-if="view" class="veil" @click="closeSheet" />
+      <!-- 悬浮层窗口（overlay/topbar）本身就是透明玻璃贴在桌面上：
+           遮罩再铺色就是一块黑玻璃浮在桌面。ghost = 完全透明，
+           只保留「点空白处关闭」的捕获，主窗口里维持原遮罩。 -->
+      <div v-if="view" class="veil" :class="{ ghost: isSurface }" @click="closeSheet" />
     </Transition>
 
     <Transition name="rise">
@@ -259,6 +263,12 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   z-index: 70;
   background: rgba(4, 7, 13, 0.62);
   backdrop-filter: blur(4px);
+}
+
+/* 悬浮层上不吃黑底：桌面就是要露出来的背景 */
+.veil.ghost {
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .sheet {

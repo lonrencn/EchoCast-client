@@ -16,7 +16,16 @@ import { settings } from "../settings/useSettings";
 
 const props = defineProps<{ media: MediaItem[] }>();
 
-type State = { status: "loading" | "ok" | "error"; path?: string; size?: number; msg?: string };
+type State = {
+  status: "loading" | "ok" | "error";
+  /** 展示用：asset 协议地址，喂给 <img>/<video>/<audio> */
+  path?: string;
+  /** 原始绝对路径。media_open 只认它 —— convertFileSrc 产物是给
+   *  WebView 用的 http://asset.localhost/…，fs::canonicalize 解不了。 */
+  local?: string;
+  size?: number;
+  msg?: string;
+};
 
 const states = reactive(new Map<string, State>());
 
@@ -43,6 +52,7 @@ async function fetchOne(item: MediaItem) {
     states.set(item.url, {
       status: "ok",
       path: convertFileSrc(res.path),
+      local: res.path,
       size: res.size,
     });
   } catch (e) {
@@ -85,10 +95,12 @@ function fmtSize(bytes?: number): string {
 
 async function openFile(item: MediaItem) {
   const st = states.get(item.url);
-  if (!st?.path) return;
+  // 必须传原始绝对路径：asset URL 进 Rust 的 canonicalize 一定失败，
+  // 表现是「打开」按钮按了没反应 —— 就是之前的样子。
+  if (!st?.local) return;
   const { invoke } = await import("@tauri-apps/api/core");
   try {
-    await invoke("media_open", { path: st.path });
+    await invoke("media_open", { path: st.local });
   } catch (e) {
     console.warn("[media] 打开失败:", e);
   }
