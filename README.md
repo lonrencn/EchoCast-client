@@ -9,7 +9,7 @@ Tauri 2 + Vue 3 + TypeScript + Vite。
 > 与真实客户端 `media[]` 附件走的是同一条链路。
 
 <p align="center">
-  <img src="docs/brand/poster.png" alt="EchoCast · 任务跑完，轻轻回应一声" width="720" />
+  <img src="docs/brand/poster.jpg" alt="EchoCast · 任务跑完，轻轻回应一声" width="720" />
 </p>
 
 ## 界面一览
