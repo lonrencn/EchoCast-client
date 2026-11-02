@@ -53,6 +53,10 @@ pub struct RawNotice {
     pub media: Option<Vec<RawMedia>>,
     pub attachments: Option<Vec<RawMedia>>,
     pub files: Option<Vec<RawMedia>>,
+    /// agent 属名（署名）。`agent` / `agent_name` / `agent_alias` 都收。
+    pub agent: Option<String>,
+    pub agent_name: Option<String>,
+    pub agent_alias: Option<String>,
     /// BROADCAST v1 信封的结构化载荷：`data.url` 是机器可读链接字段
     /// （2026-11-01 与服务端对齐：text 裸 URL 给人看，data.url 给程序读）。
     pub data: Option<RawData>,
@@ -550,6 +554,9 @@ impl RawNotice {
                 .offline_since
                 .map(|t| if t > 0 && t < 1_000_000_000_000 { t * 1000 } else { t }),
             media,
+            agent: non_empty(&self.agent)
+                .or_else(|| non_empty(&self.agent_name))
+                .or_else(|| non_empty(&self.agent_alias)),
         })
     }
 }
@@ -566,6 +573,34 @@ pub fn from_value(v: serde_json::Value) -> Option<TaskNotice> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_field_is_taken_from_any_alias() {
+        // 主字段 agent
+        let v: serde_json::Value =
+            serde_json::from_str(r#"{"id":"t1","task":"x","status":"success","agent":"Soundao"}"#)
+                .unwrap();
+        assert_eq!(from_value(v).unwrap().agent.as_deref(), Some("Soundao"));
+        // 别名 agent_name / agent_alias
+        let v: serde_json::Value = serde_json::from_str(
+            r#"{"id":"t2","task":"x","status":"success","agent_name":"配音师老王"}"#,
+        )
+        .unwrap();
+        assert_eq!(from_value(v).unwrap().agent.as_deref(), Some("配音师老王"));
+        let v: serde_json::Value = serde_json::from_str(
+            r#"{"id":"t3","task":"x","status":"success","agent_alias":"Research Agent"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            from_value(v).unwrap().agent.as_deref(),
+            Some("Research Agent")
+        );
+        // 空串当没有：不让「""」占住小字位
+        let v: serde_json::Value =
+            serde_json::from_str(r#"{"id":"t4","task":"x","status":"success","agent":"  "}"#)
+                .unwrap();
+        assert_eq!(from_value(v).unwrap().agent, None);
+    }
 
     #[test]
     fn card_only_frame_is_usable() {

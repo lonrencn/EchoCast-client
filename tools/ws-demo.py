@@ -185,7 +185,8 @@ def push_notice(payload: dict) -> dict:
         "timestamp": payload.get("timestamp") or now_ms(),
     }
     for k in ("topic", "channel", "title", "progress", "terminal", "offline_since",
-              "media", "detail", "ask"):
+              "media", "detail", "ask",
+              "agent", "agent_name", "agent_alias"):
         if payload.get(k) is not None:
             body[k] = payload[k]
 

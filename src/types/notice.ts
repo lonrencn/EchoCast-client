@@ -133,6 +133,8 @@ export interface TaskNotice {
   offline_since?: number;
   /** 多媒体附件。有值时详情面板展示媒体区，气泡上出现「📎 N」角标。 */
   media?: MediaItem[];
+  /** agent 属名（署名）。展示在状态标题后的小字，超长由适配层掩码。 */
+  agent?: string;
   /** 系统自产的提示气泡（欢迎/待命等）：展示但不出声。 */
   silent?: boolean;
 }

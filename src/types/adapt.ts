@@ -36,6 +36,10 @@ export interface BubbleView {
   /** 多媒体附件。气泡只显示数量角标，真正的展示在详情面板里。 */
   media?: MediaItem[];
   pack?: string;
+  /** agent 属名小字（≤20 字符，超长已掩码）。显示在状态标题后。 */
+  agentBy: string;
+  /** 属名全文（悬停提示用）。 */
+  agentFull: string;
 }
 
 const HEADLINE: Record<string, string> = {
@@ -57,6 +61,18 @@ const BADGE: Record<string, string> = {
   failed: "失败",
   warning: "留意",
 };
+
+/**
+ * agent 属名小字：≤20 字符原样，超长取前 20 个字符 + 掩码省略号。
+ * 服务端还没下发 agent 时退回 executor 名 —— 属名必须看得见，
+ * 空着比退回更让人以为丢了字段。
+ */
+function agentByline(n: TaskNotice): { by: string; full: string } {
+  const full = (n.agent?.trim() || n.executor.name || "").trim();
+  if (!full) return { by: "", full: "" };
+  const by = full.length <= 20 ? full : full.slice(0, 20) + "…";
+  return { by, full };
+}
 
 /**
  * 传输模型 → 视图模型。
@@ -105,5 +121,7 @@ export function toBubbleView(n: TaskNotice, answered?: AnswerRecord | null): Bub
     answered: answered ?? null,
     media: n.media ?? [],
     pack: n.buddy_pack,
+    agentBy: agentByline(n).by,
+    agentFull: agentByline(n).full,
   };
 }

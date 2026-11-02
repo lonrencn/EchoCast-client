@@ -144,6 +144,7 @@ impl Scenario {
             terminal: None,
             offline_since: None,
             media: None,
+            agent: None,
         };
         n.trim_actions();
         n

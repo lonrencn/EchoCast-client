@@ -255,6 +255,11 @@ pub struct TaskNotice {
     /// 多媒体附件。有值时前端展示媒体区（图片/音频/视频/文件卡片）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media: Option<Vec<MediaItem>>,
+    /// agent 属名（署名）。服务端下发，展示在状态标题后的小字；
+    /// 超过 20 个字符由前端掩码。与 executor 分开：executor 是
+    /// 「谁在跑」，agent 是「以谁的名义交付」。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 impl TaskNotice {
@@ -354,6 +359,7 @@ mod contract {
             terminal: Some("term_7f3a1c".into()),
             offline_since: None,
             media: None,
+            agent: None,
         }
     }
 

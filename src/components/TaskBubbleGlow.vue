@@ -69,6 +69,10 @@ const props = withDefaults(
     media?: MediaItem[];
     /** 指定素材包 id。留空则跟随全局设置 —— 这是「图可换」的入口 */
     pack?: string;
+    /** agent 属名小字（≤20 字符，超长已掩码），跟在状态标题后 */
+    agentBy?: string;
+    /** 属名全文，悬停提示用 */
+    agentFull?: string;
   }>(),
   {
     state: "success",
@@ -424,7 +428,9 @@ const actionFailed = computed(() => {
         <span class="time">{{ time }}</span>
       </div>
 
-      <h3 class="headline">{{ headlineText }}</h3>
+      <h3 class="headline">
+        {{ headlineText }}<span v-if="agentBy" class="byline" :title="agentFull">{{ agentBy }}</span>
+      </h3>
 
       <div class="meta">
         <div class="row">
@@ -649,6 +655,18 @@ const actionFailed = computed(() => {
   letter-spacing: 0.03em;
   color: #f2f7ff;
   text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+/* agent 属名小字：跟在「任务完成」这类状态词后面，小一号、压暗，
+   有署名但不抢状态的视觉主次。掩码版悬停出全文。 */
+.byline {
+  margin-left: 9px;
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: #7d8ca6;
+  text-shadow: none;
+  cursor: default;
 }
 
 /* ── 信息行 ─────────────────────────────── */
