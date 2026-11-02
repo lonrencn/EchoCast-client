@@ -186,7 +186,7 @@ def push_notice(payload: dict) -> dict:
     }
     for k in ("topic", "channel", "title", "progress", "terminal", "offline_since",
               "media", "detail", "ask",
-              "agent", "agent_name", "agent_alias"):
+              "agent_name", "note_alias"):
         if payload.get(k) is not None:
             body[k] = payload[k]
 

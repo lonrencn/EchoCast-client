@@ -259,27 +259,19 @@ pub fn normalize_url(raw: &str) -> Result<String, String> {
 // 帧解析
 // ---------------------------------------------------------------------------
 
-/// 三种输入都认，按「由严到宽」逐级降级：
+/// 三种输入都认：
 /// 1. 裸的严格通知：`{"id": "…", "task": "…", "status": "…"}`
 /// 2. 包了一层的信封：`{"op": "notice", "notice": {…}}`
 /// 3. 宽松结构：`{"topic": "…", "text": "…", "card": {…}}`
 ///    —— 服务端还没补齐 id/status/timestamp 时，由 `wire::from_value` 兜底。
 ///
-/// 先试严的：字段齐全时走严格解析，宽度归一只在联调期真正用到。
+/// ⚠️ 必须只走 `wire::from_value` 一条路。曾经有「先试严格反序列化」的
+/// 快路径：字段齐全的帧直接落成 TaskNotice，serde 把结构体不认识的字段
+/// （比如 note_alias 这类别名）**静默丢弃**——同一条帧在两条路径下行为
+/// 不一致，字段越加越多必然再踩。宽松归一是唯一真相源。
 pub fn parse_notice(text: &str) -> Option<TaskNotice> {
-    if let Ok(n) = serde_json::from_str::<TaskNotice>(text) {
-        return Some(n);
-    }
-    #[derive(Deserialize)]
-    struct Envelope {
-        notice: TaskNotice,
-    }
-    if let Ok(e) = serde_json::from_str::<Envelope>(text) {
-        return Some(e.notice);
-    }
-    serde_json::from_str::<serde_json::Value>(text)
-        .ok()
-        .and_then(crate::wire::from_value)
+    let v: serde_json::Value = serde_json::from_str(text).ok()?;
+    crate::wire::from_value(v)
 }
 
 /// 认下服务端给的身份。
@@ -1070,6 +1062,23 @@ mod tests {
 
     fn v(s: &str) -> serde_json::Value {
         serde_json::from_str(s).unwrap()
+    }
+
+    #[test]
+    fn notice_envelope_with_alias_field_survives_parsing() {
+        // 回归：字段齐全的帧曾经走严格反序列化，serde 把结构体不认识的
+        // note_alias 静默丢掉，别名字段只有单测里（wire 层）能用。
+        // parse_notice 必须整条走宽松归一。
+        let n = parse_notice(
+            r#"{"op":"notice","notice":{
+                "id":"t-alias","task":"带别名的任务","status":"success",
+                "executor":{"name":"Research Agent"},
+                "result":"ok","actions":[],"timestamp":1790000000000,
+                "note_alias":"研究组-小陈"}}"#,
+        )
+        .expect("完整帧必须解析成功");
+        assert_eq!(n.agent_name.as_deref(), Some("研究组-小陈"));
+        assert_eq!(n.executor.name, "Research Agent");
     }
 
     #[test]

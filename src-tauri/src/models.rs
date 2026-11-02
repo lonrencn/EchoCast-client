@@ -257,9 +257,11 @@ pub struct TaskNotice {
     pub media: Option<Vec<MediaItem>>,
     /// agent 属名（署名）。服务端下发，展示在状态标题后的小字；
     /// 超过 20 个字符由前端掩码。与 executor 分开：executor 是
-    /// 「谁在跑」，agent 是「以谁的名义交付」。
+    /// 「谁在跑」，agent_name 是「以谁的名义交付」。
+    /// 对外字段名约定为 `agent_name` 或 `note_alias`（两者等价），
+    /// 不用 `agent` —— 名字里带量词，服务端开发者一眼能懂。
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
+    pub agent_name: Option<String>,
 }
 
 impl TaskNotice {
@@ -359,7 +361,7 @@ mod contract {
             terminal: Some("term_7f3a1c".into()),
             offline_since: None,
             media: None,
-            agent: None,
+            agent_name: None,
         }
     }
 

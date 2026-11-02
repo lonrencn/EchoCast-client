@@ -53,10 +53,10 @@ pub struct RawNotice {
     pub media: Option<Vec<RawMedia>>,
     pub attachments: Option<Vec<RawMedia>>,
     pub files: Option<Vec<RawMedia>>,
-    /// agent 属名（署名）。`agent` / `agent_name` / `agent_alias` 都收。
-    pub agent: Option<String>,
+    /// agent 属名（署名）。`agent_name` / `note_alias` 两者等价，不用 `agent`：
+    /// 名字里带量词，服务端开发者一眼就知道是什么意思。
     pub agent_name: Option<String>,
-    pub agent_alias: Option<String>,
+    pub note_alias: Option<String>,
     /// BROADCAST v1 信封的结构化载荷：`data.url` 是机器可读链接字段
     /// （2026-11-01 与服务端对齐：text 裸 URL 给人看，data.url 给程序读）。
     pub data: Option<RawData>,
@@ -554,9 +554,7 @@ impl RawNotice {
                 .offline_since
                 .map(|t| if t > 0 && t < 1_000_000_000_000 { t * 1000 } else { t }),
             media,
-            agent: non_empty(&self.agent)
-                .or_else(|| non_empty(&self.agent_name))
-                .or_else(|| non_empty(&self.agent_alias)),
+            agent_name: non_empty(&self.agent_name).or_else(|| non_empty(&self.note_alias)),
         })
     }
 }
@@ -575,31 +573,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn agent_field_is_taken_from_any_alias() {
-        // 主字段 agent
+    fn agent_name_or_note_alias_are_equivalent() {
+        // 主字段 agent_name
         let v: serde_json::Value =
-            serde_json::from_str(r#"{"id":"t1","task":"x","status":"success","agent":"Soundao"}"#)
+            serde_json::from_str(r#"{"id":"t1","task":"x","status":"success","agent_name":"Soundao"}"#)
                 .unwrap();
-        assert_eq!(from_value(v).unwrap().agent.as_deref(), Some("Soundao"));
-        // 别名 agent_name / agent_alias
+        assert_eq!(from_value(v).unwrap().agent_name.as_deref(), Some("Soundao"));
+        // 等价别名 note_alias
         let v: serde_json::Value = serde_json::from_str(
-            r#"{"id":"t2","task":"x","status":"success","agent_name":"配音师老王"}"#,
+            r#"{"id":"t2","task":"x","status":"success","note_alias":"配音师老王"}"#,
         )
         .unwrap();
-        assert_eq!(from_value(v).unwrap().agent.as_deref(), Some("配音师老王"));
+        assert_eq!(from_value(v).unwrap().agent_name.as_deref(), Some("配音师老王"));
+        // 两者同给时 agent_name 优先（顺序稳定，不随 serde 字段序漂移）
         let v: serde_json::Value = serde_json::from_str(
-            r#"{"id":"t3","task":"x","status":"success","agent_alias":"Research Agent"}"#,
+            r#"{"id":"t3","task":"x","status":"success","note_alias":"甲","agent_name":"乙"}"#,
         )
         .unwrap();
-        assert_eq!(
-            from_value(v).unwrap().agent.as_deref(),
-            Some("Research Agent")
-        );
+        assert_eq!(from_value(v).unwrap().agent_name.as_deref(), Some("乙"));
         // 空串当没有：不让「""」占住小字位
         let v: serde_json::Value =
-            serde_json::from_str(r#"{"id":"t4","task":"x","status":"success","agent":"  "}"#)
+            serde_json::from_str(r#"{"id":"t4","task":"x","status":"success","agent_name":"  "}"#)
                 .unwrap();
-        assert_eq!(from_value(v).unwrap().agent, None);
+        assert_eq!(from_value(v).unwrap().agent_name, None);
     }
 
     #[test]

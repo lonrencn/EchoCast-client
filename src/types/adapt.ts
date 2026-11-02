@@ -68,7 +68,7 @@ const BADGE: Record<string, string> = {
  * 空着比退回更让人以为丢了字段。
  */
 function agentByline(n: TaskNotice): { by: string; full: string } {
-  const full = (n.agent?.trim() || n.executor.name || "").trim();
+  const full = (n.agent_name?.trim() || n.executor.name || "").trim();
   if (!full) return { by: "", full: "" };
   const by = full.length <= 20 ? full : full.slice(0, 20) + "…";
   return { by, full };
