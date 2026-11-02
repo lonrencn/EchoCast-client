@@ -42,3 +42,5 @@ tools/demo-deploy.py
 tools/cvm-inspect.py
 tools/gitea-issues.py
 tools/bridge-read.py
+
+tools/gitea-close.py
