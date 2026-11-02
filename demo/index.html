@@ -861,7 +861,12 @@ function disarmHover(item){
 
 function handleAction(item, act){
   const n = item.data;
-  if(act==="read"){ dismiss(n.id); return; }
+  // 问询在等人的时候不许「已读」收走（工单 #4）：没人答复它就常驻，
+  // 这是问询的核心契约。想先放一边用「忽略」——那是显式决定，有提示。
+  if(act==="read"){
+    if(n.status==="ask"){ toast("问询在等答复，「忽略」才能收起"); return; }
+    dismiss(n.id); return;
+  }
   if(act==="ignore"){ dismiss(n.id); toast("已忽略，任务保留在服务端，稍后可从折叠区回看"); return; }
   if(act==="go" && n.status==="ask"){
     log("out","task.reply",{id:n.id, reply:"approve"});
@@ -1093,16 +1098,23 @@ function openSheet(n){
   $("sMeta").textContent = `${n.id} · ${new Date().toLocaleTimeString("zh-CN")}`;
   $("sResult").textContent = n.result || "（暂无详情文本）";
   $("sMedia").innerHTML = (n.media||[]).map(m=>{
-    if(m.kind==="video") return `<video controls preload="metadata" src="${m.src}" title="${esc(m.name)}"></video>`;
-    if(m.kind==="audio") return `<div class="f-card"><span class="f-ic">🎧</span><div class="f-main"><b>${esc(m.name)}</b><audio controls preload="metadata" src="${m.src}"></audio></div></div>`;
-    if(m.kind==="image") return `<img src="${m.src}" alt="${esc(m.name)}" title="${esc(m.name)}" />`;
-    return `<div class="f-card"><span class="f-ic">📄</span><div class="f-main"><b>${esc(m.name)}</b><span class="f-sub">${m.size?fmtSize(m.size)+" · ":""}点「下载」保存到本机</span></div><a class="dl" download="${esc(m.name)}" href="${m.src}">下载</a></div>`;
+    // src/href 一律 esc()：data URI 里的引号会截断属性（图片全破），
+    // 也是属性注入的入口（工单 #2）。blob: 与 encodeURIComponent 后的
+    // data URI 不含敏感字符，esc 对它们是 no-op。
+    if(m.kind==="video") return `<video controls preload="metadata" src="${esc(m.src)}" title="${esc(m.name)}"></video>`;
+    if(m.kind==="audio") return `<div class="f-card"><span class="f-ic">🎧</span><div class="f-main"><b>${esc(m.name)}</b><audio controls preload="metadata" src="${esc(m.src)}"></audio></div></div>`;
+    if(m.kind==="image") return `<img src="${esc(m.src)}" alt="${esc(m.name)}" title="${esc(m.name)}" />`;
+    return `<div class="f-card"><span class="f-ic">📄</span><div class="f-main"><b>${esc(m.name)}</b><span class="f-sub">${m.size?fmtSize(m.size)+" · ":""}点「下载」保存到本机</span></div><a class="dl" download="${esc(m.name)}" href="${esc(m.src)}">下载</a></div>`;
   }).join("");
   $("sheetBack").classList.add("open");
 }
 function closeSheet(){
   $("sheetBack").classList.remove("open");
-  if(sheetForId && notices.has(sheetForId)) dismiss(sheetForId);   // 看完详情 = 已读
+  // 看完详情 = 已读。但**问询除外**（工单 #4）：面板里看的是问题与选项，
+  // 关掉面板不等于「不答复了」——收走它等于把待办静默删除。答复或「忽略」
+  // 才能让问询离开屏幕。
+  const viewed = notices.get(sheetForId);
+  if(sheetForId && notices.has(sheetForId) && viewed && viewed.data.status!=="ask") dismiss(sheetForId);
   sheetForId = null;
 }
 $("sClose").addEventListener("click", closeSheet);
@@ -1116,11 +1128,13 @@ function chartSVG(title, [vals, note]){
   const bars = vals.map((v,i)=>{
     const h = Math.max(v/max*54, 3);
     const x = 30+i*30;
-    const c = i===vals.length-1 ? "%2347d6c8" : "%233a5a66";
-    return `<rect x="${x}" y="${78-h}" width="18" height="${h}" rx="3" fill="${c}"/><text x="${x+9}" y="90" font-size="7" fill="%237a8f99" text-anchor="middle">${["一","二","三","四","五","六","日"][i]}</text>`;
+    const c = i===vals.length-1 ? "#47d6c8" : "#3a5a66";
+    return `<rect x="${x}" y="${78-h}" width="18" height="${h}" rx="3" fill="${c}"/><text x="${x+9}" y="90" font-size="7" fill="#7a8f99" text-anchor="middle">${["一","二","三","四","五","六","日"][i]}</text>`;
   }).join("");
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="250" height="110"><rect width="250" height="110" rx="10" fill="%231a2733"/><text x="16" y="24" font-size="12" fill="%23dfe9ec" font-family="sans-serif">${encodeURIComponent(title)}</text>${bars}<text x="16" y="103" font-size="8" fill="%235f7580" font-family="sans-serif">${encodeURIComponent(note)}</text></svg>`;
-  return "data:image/svg+xml,"+svg;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="250" height="110"><rect width="250" height="110" rx="10" fill="#1a2733"/><text x="16" y="24" font-size="12" fill="#dfe9ec" font-family="sans-serif">${title}</text>${bars}<text x="16" y="103" font-size="8" fill="#5f7580" font-family="sans-serif">${note}</text></svg>`;
+  // 整体 encodeURIComponent：SVG 里的引号/尖括号/井号全部变安全字节，
+  // 出来的 data URI 不含任何能截断 HTML 属性的字符（工单 #2 的根）。
+  return "data:image/svg+xml,"+encodeURIComponent(svg);
 }
 
 /* ═══════════════ 拓扑：点登记终端 → 桌面切到该终端视角 ═══════════════ */

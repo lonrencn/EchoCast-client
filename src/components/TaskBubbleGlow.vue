@@ -269,10 +269,11 @@ onBeforeUnmount(() => {
   document.removeEventListener("click", onDocClickClose);
 });
 
-/** robot 点击：受击 + 弹交付清单（没有交付物时退回收起）。 */
+/** robot 点击：受击 + 弹交付清单（没有交付物时退回收起；问询不收——工单 #4）。 */
 function onBuddyClick() {
   poke();
   if (!deliverables.value.length) {
+    if (props.ask && !props.answered) return;
     emit("dismiss");
     return;
   }
@@ -311,7 +312,9 @@ async function openDeliverable(d: Deliverable) {
   }
 }
 
-/** 点卡片：清单开着就先收清单；有交付物开第一项；否则已读收起。 */
+/** 点卡片：清单开着就先收清单；有交付物开第一项；否则已读收起。
+ *  问询例外：没有交付物时点卡片不能收走它（工单 #4）——答复或「忽略」
+ *  才是问询的出口，卡片点一下就静默消失等于丢待办。 */
 async function onCardClick() {
   if (deliveryOpen.value) {
     deliveryOpen.value = false;
@@ -320,6 +323,7 @@ async function onCardClick() {
   poke();
   const first = deliverables.value[0];
   if (!first) {
+    if (props.ask && !props.answered) return;
     emit("dismiss");
     return;
   }
@@ -404,8 +408,17 @@ const actionFailed = computed(() => {
         </div>
       </Transition>
 
-      <!-- 已读交互：右上角小按钮，悬停时显现（让位给时间戳） -->
-      <button class="readbtn" title="标记已读并收起" @click.stop="emit('dismiss')">已读</button>
+      <!-- 已读交互：右上角小按钮，悬停时显现（让位给时间戳）。
+           问询在等答复时没有「已读」——只有「忽略」和作答能让它离开，
+           否则待办会被静默删掉（工单 #4）。 -->
+      <button
+        v-if="!ask || answered"
+        class="readbtn"
+        title="标记已读并收起"
+        @click.stop="emit('dismiss')"
+      >
+        已读
+      </button>
 
       <!-- 悬停倒计时条：10 秒从满到空，走完即已读收起 -->
       <span class="fadebar" :class="{ on: fading }" aria-hidden="true"><i /></span>

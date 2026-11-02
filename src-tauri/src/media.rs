@@ -218,6 +218,13 @@ pub async fn media_open(app: AppHandle, path: String) -> Result<(), String> {
     if !target.starts_with(&dir) {
         return Err("只允许打开媒体缓存目录里的文件".into());
     }
+    // 目录白名单之外还要过文档白名单（工单 #9 的第二处汇合点）：
+    // media[] 的 URL 是服务端可控的，`.exe` 结尾的「附件」下载进缓存后
+    // 若直接交给系统程序，等于远程执行。缓存文件名保留原始扩展名，
+    // 这里能准确判型。
+    if !crate::sysopen::is_openable_document(&target) {
+        return Err("这个类型的附件不允许代开".into());
+    }
     app.opener()
         .open_path(target.to_string_lossy(), None::<&str>)
         .map_err(|e| e.to_string())

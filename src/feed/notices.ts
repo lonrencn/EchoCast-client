@@ -192,10 +192,13 @@ export function openSheet(id: string) {
 }
 
 export function closeSheet() {
-  // 看完详情 = 已读：关面板即收起，符合「常驻 + 已读」模型。
+  // 看完详情 = 已读：关面板即收起。**问询除外**（工单 #4）：面板里看的是
+  // 问题与选项，关掉不等于「不答复了」；问询只能由答复或「忽略」收走，
+  // 否则待办被静默删除，违背「没人响应就一直等」的契约。
   const viewed = sheetId.value;
+  const n = viewed ? list.value.find((x) => x.id === viewed) : null;
   sheetId.value = null;
-  if (viewed && list.value.some((x) => x.id === viewed)) dismiss(viewed);
+  if (viewed && n && !isAsk(n) && list.value.some((x) => x.id === viewed)) dismiss(viewed);
 }
 
 /**
@@ -631,6 +634,16 @@ export async function runAction(noticeId: string, actionId: string) {
   }
 
   if (res.ok) {
+    // 本地已经打开的动作（payload 是链接/文件且真的开成了）：用户的意图
+    // 已经完成，服务端 ack 只是审计回执——而且 wire 层合成的「打开链接」
+    // 动作服务端根本没登记过，等它表态只会等来 nack，把成功误报成失败
+    // （工单 #7）。界面上只认本地事实，直接收起。
+    // 帧照发（上面已发），迟到的 ack/nack 没有等待者，自然无害。
+    if (opened) {
+      dismiss(noticeId);
+      return { ok: true, opened };
+    }
+
     // 帧写进发送队列 ≠ 服务端收到了。ack 通常十几毫秒就回来，等这一下
     // 对体验几乎无感；而「先收气泡再看结果」，等于替服务端宣布了一次
     // 它没做过的事 —— 服务端回 nack 时用户看到的却是气泡干干净净消失。

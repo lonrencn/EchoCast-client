@@ -21,10 +21,37 @@ use tauri_plugin_opener::OpenerExt;
 /// 允许直接打开的 URL 协议。
 const URL_PREFIXES: &[&str] = &["http://", "https://", "mailto:"];
 
-/// 绝不代开的可执行扩展名。宁可错杀：远程输入打开一个 exe 的代价太大。
+/// 允许交给系统打开的文档/媒体扩展名（白名单）。
+///
+/// 为什么从黑名单改成白名单（工单 #9）：黑名单挡得住直球，挡不住变形——
+/// `evil.exe.`（尾点）在 Windows 打开时被规约成 `evil.exe`，但扩展名检查
+/// 看到的是 `exe.`；`.url` / `.cpl` / `.msc` / `.scf` 这类「不是 exe 却能
+/// 执行代码」的格式还会随系统能力不断长出来。白名单 fail-closed：
+/// 不在名单里的一律拒绝，新出现的危险格式天然进不来。
+const ALLOWED_EXTS: &[&str] = &[
+    // 图片
+    "png", "jpg", "jpeg", "gif", "webp", "bmp",
+    // 音视频
+    "mp3", "wav", "ogg", "flac", "m4a", "mp4", "webm", "mkv", "mov", "avi",
+    // 文档
+    "pdf", "txt", "md", "csv", "tsv", "log", "json", "xml", "yaml", "yml",
+    "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+    // 压缩包只读不解执行
+    "zip", "tar", "gz", "7z",
+    // 设计/工程只读格式
+    "psd", "ai", "fig", "sqlite3", "db",
+];
+
+/// 绝不代开的扩展名。白名单已把它们全部挡在外面，这里单独列出
+/// 是给读代码的人一张「曾经担心过什么」的清单，也做第二道闸。
 const BLOCKED_EXTS: &[&str] = &[
     "exe", "bat", "cmd", "com", "scr", "pif", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf",
     "wsh", "hta", "msi", "msp", "mst", "jar", "lnk", "reg", "gadget", "iso", "img",
+    // 不是 exe 却能执行/加载代码的格式（工单 #9 补）
+    "url", "cpl", "msc", "scf", "inf", "sct", "ws", "shb", "shs", "msh", "py", "pyw", "rb",
+    "pl", "sh", "bash", "fish",
+    // 本地 HTML 能带脚本跑，服务端下发的页面不该在 file:// 里活起来
+    "html", "htm", "xhtml", "shtml", "mht",
 ];
 
 fn scheme_allowed(s: &str) -> bool {
@@ -32,14 +59,29 @@ fn scheme_allowed(s: &str) -> bool {
     URL_PREFIXES.iter().any(|p| l.starts_with(p))
 }
 
-fn ext_blocked(p: &Path) -> bool {
+fn ext_of(p: &Path) -> String {
     p.extension()
         .and_then(|e| e.to_str())
-        .map(|e| {
-            let e = e.to_lowercase();
-            BLOCKED_EXTS.iter().any(|b| *b == e)
-        })
-        .unwrap_or(false)
+        .map(|e| e.trim_end_matches(['.', ' ']).to_lowercase())
+        .unwrap_or_default()
+}
+
+fn ext_blocked(p: &Path) -> bool {
+    let e = ext_of(p);
+    BLOCKED_EXTS.iter().any(|b| *b == e)
+}
+
+/// 白名单判定：目录（无扩展名）不算可打开文档，一律拒绝。
+pub fn ext_allowed(p: &Path) -> bool {
+    let e = ext_of(p);
+    !e.is_empty() && ALLOWED_EXTS.iter().any(|a| *a == e)
+}
+
+/// 文档白名单 + 可执行黑名单的合并判定：sys_open 与 media_open 共用。
+/// 工单 #9 的「三处汇合点」收成一道闸：任何一个入口想用系统程序
+/// 打开本机文件，都必须过这里。
+pub fn is_openable_document(p: &Path) -> bool {
+    !ext_blocked(p) && ext_allowed(p)
 }
 
 /// 用系统默认程序打开一个链接或本机路径。
@@ -60,18 +102,30 @@ pub async fn sys_open(app: AppHandle, target: String) -> Result<(), String> {
             .map_err(|e| format!("系统打不开这个链接: {e}"));
     }
 
-    let path = std::path::PathBuf::from(&t);
-    if !path.is_absolute() {
+    let raw = std::path::PathBuf::from(&t);
+    if !raw.is_absolute() {
         return Err("只支持 http/https 链接或本机绝对路径".into());
     }
-    if !path.exists() {
+    if !raw.exists() {
         return Err("这个文件不在这台机器上，打不开".into());
     }
-    if ext_blocked(&path) {
+
+    // 先规约再校验再打开，三步都用同一条规约路径（工单 #9）：
+    // 1. `evil.exe.` 这类尾点/尾空格写法，Windows 打开时会被规约成
+    //    `evil.exe`——校验原始串看到的是 `exe.`，骗过黑名单；
+    //    canonicalize 把它落成真实路径，扩展名检查就没得骗。
+    // 2. 后面 open_path 也必须打开规约后的路径，否则校验的和打开的
+    //    不是同一个东西。
+    let target = std::fs::canonicalize(&raw).map_err(|e| format!("系统打不开这个文件: {e}"))?;
+
+    if ext_blocked(&target) {
         return Err("可执行文件不允许直接打开".into());
     }
+    if !ext_allowed(&target) {
+        return Err("这个类型的文件不允许代开（只放行常见文档与媒体格式）".into());
+    }
     app.opener()
-        .open_path(t, None::<&str>)
+        .open_path(target.to_string_lossy().into_owned(), None::<&str>)
         .map_err(|e| format!("系统打不开这个文件: {e}"))
 }
 
@@ -98,5 +152,32 @@ mod tests {
         assert!(!ext_blocked(Path::new("C:\\x\\out.mp4")));
         // 无扩展名（目录常见）不拦，交给 open_path 自己处理
         assert!(!ext_blocked(Path::new("C:\\x\\build")));
+    }
+
+    /// 工单 #9：黑名单变形绕过的三类代表，白名单必须全部拒绝。
+    #[test]
+    fn allowlist_closes_bypass_surfaces() {
+        // 尾点 / 尾空格：`evil.exe.` 规约后是 exe，且 `exe.` 本就不在白名单
+        assert!(!ext_allowed(Path::new("C:\\x\\evil.exe.")));
+        assert!(!ext_allowed(Path::new("C:\\x\\evil.exe ")));
+        // 「不是 exe 却能执行」的格式
+        assert!(!ext_allowed(Path::new("C:\\x\\payload.url")));
+        assert!(!ext_allowed(Path::new("C:\\x\\panel.cpl")));
+        assert!(!ext_allowed(Path::new("C:\\x\\console.msc")));
+        assert!(!ext_allowed(Path::new("C:\\x\\page.html")));
+        assert!(!ext_allowed(Path::new("C:\\x\\run.py")));
+        // 目录 / 无扩展名一律拒绝（fail-closed）
+        assert!(!ext_allowed(Path::new("C:\\x\\build")));
+        assert!(!ext_allowed(Path::new("C:\\x\\noext")));
+        // 正常文档/媒体放行
+        assert!(ext_allowed(Path::new("C:\\x\\报告.PDF")));
+        assert!(ext_allowed(Path::new("C:\\x\\out.mp4")));
+        assert!(ext_allowed(Path::new("C:\\x\\数据.xlsx")));
+        // 尾点写法的原始串语义：`report.pdf.` 的扩展名提取为空（Rust 把尾点
+        // 之后当空扩展）→ 白名单拒绝。真实闸门跑在 canonicalize 之后，Windows
+        // 会先把尾点规约掉（`report.pdf.` → `report.pdf`），正常文件不受影响；
+        // 这里断言的是「就算绕过规约也进不来」的 fail-closed 底线。
+        assert_eq!(ext_of(Path::new("C:\\x\\report.pdf.")), "");
+        assert!(!ext_allowed(Path::new("C:\\x\\report.pdf.")));
     }
 }
