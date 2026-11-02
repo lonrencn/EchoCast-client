@@ -267,7 +267,7 @@ pub fn normalize_url(raw: &str) -> Result<String, String> {
 ///
 /// ⚠️ 必须只走 `wire::from_value` 一条路。曾经有「先试严格反序列化」的
 /// 快路径：字段齐全的帧直接落成 TaskNotice，serde 把结构体不认识的字段
-/// （比如 note_alias 这类别名）**静默丢弃**——同一条帧在两条路径下行为
+/// （比如 node_alias 这类别名）**静默丢弃**——同一条帧在两条路径下行为
 /// 不一致，字段越加越多必然再踩。宽松归一是唯一真相源。
 pub fn parse_notice(text: &str) -> Option<TaskNotice> {
     let v: serde_json::Value = serde_json::from_str(text).ok()?;
@@ -1067,14 +1067,14 @@ mod tests {
     #[test]
     fn notice_envelope_with_alias_field_survives_parsing() {
         // 回归：字段齐全的帧曾经走严格反序列化，serde 把结构体不认识的
-        // note_alias 静默丢掉，别名字段只有单测里（wire 层）能用。
+        // node_alias 静默丢掉，别名字段只有单测里（wire 层）能用。
         // parse_notice 必须整条走宽松归一。
         let n = parse_notice(
             r#"{"op":"notice","notice":{
                 "id":"t-alias","task":"带别名的任务","status":"success",
                 "executor":{"name":"Research Agent"},
                 "result":"ok","actions":[],"timestamp":1790000000000,
-                "note_alias":"研究组-小陈"}}"#,
+                "node_alias":"研究组-小陈"}}"#,
         )
         .expect("完整帧必须解析成功");
         assert_eq!(n.agent_name.as_deref(), Some("研究组-小陈"));
