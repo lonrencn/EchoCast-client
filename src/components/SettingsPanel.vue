@@ -238,6 +238,50 @@ async function doClear() {
   draft.value = "";
 }
 
+/* ── 激活码入网（无令牌新用户的第一入口）───────────────────── */
+const showActivate = ref(false);
+const activateCode = ref("");
+const activateAlias = ref("");
+const activating = ref(false);
+const activateMsg = ref("");
+const activateOk = ref(false);
+
+async function doActivate() {
+  const code = activateCode.value.trim();
+  if (activating.value || !code) return;
+  if (!draft.value.trim()) {
+    activateOk.value = false;
+    activateMsg.value = "先在上面填好服务端地址，再激活";
+    return;
+  }
+  activating.value = true;
+  activateMsg.value = "";
+  activateOk.value = false;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const res = await invoke<{
+      token: string;
+      terminal_id: string;
+      alias: string;
+    }>("terminal_activate", {
+      code,
+      alias: activateAlias.value.trim() || null,
+    });
+    activateOk.value = true;
+    activateMsg.value = `入网成功 · ${res.alias || res.terminal_id}（${res.terminal_id}），正在连接…`;
+    activateCode.value = "";
+    // Rust 侧已把 token 落盘；这里同步界面显示，免得密码框还是空的
+    tokenDraft.value = res.token;
+    settings.value.token = res.token;
+    await submit();
+  } catch (err) {
+    activateOk.value = false;
+    activateMsg.value = String(err);
+  } finally {
+    activating.value = false;
+  }
+}
+
 async function toggleMock() {
   await saveSettings({ mock_enabled: !settings.value.mock_enabled });
 }
@@ -478,6 +522,54 @@ onBeforeUnmount(() => window.clearInterval(dbgTimer));
                 @change="saveToken"
               />
             </label>
+
+            <!-- 激活码入网：没有 token 的新用户从这里开始。
+                 契约：POST /api/terminals/activate（docs/terminal-routing.md §4.1 乙）。
+                 成功后令牌自动落设置，全程不手抄 hex。 -->
+            <div class="act-toggle">
+              <button class="btn ghost slim" type="button" @click="showActivate = !showActivate">
+                {{ showActivate ? "收起" : "没有令牌？用激活码入网 →" }}
+              </button>
+            </div>
+            <div v-if="showActivate" class="act-box">
+              <label class="field">
+                <input
+                  v-model="activateCode"
+                  class="input"
+                  type="text"
+                  spellcheck="false"
+                  autocomplete="off"
+                  placeholder="激活码（找服务端管理员申请，10 分钟有效）"
+                  @keydown.enter="doActivate"
+                />
+              </label>
+              <label class="field">
+                <input
+                  v-model="activateAlias"
+                  class="input"
+                  type="text"
+                  spellcheck="false"
+                  autocomplete="off"
+                  placeholder="这台机器叫什么（可选，默认用计算机名）"
+                />
+              </label>
+              <div class="row">
+                <button
+                  class="btn primary"
+                  :disabled="activating || !activateCode.trim() || !draft.trim()"
+                  @click="doActivate"
+                >
+                  {{ activating ? "激活中…" : "激活并连接" }}
+                </button>
+              </div>
+              <p v-if="activateMsg" class="hint" :class="{ ok: activateOk }">
+                {{ activateMsg }}
+              </p>
+              <p class="hint">
+                一个激活码只能激活一台终端、10 分钟内有效；成功后令牌自动填入，
+                不需要手抄。地址填好再激活。
+              </p>
+            </div>
 
             <!-- 订阅清单不是普通人该碰的东西：默认全订阅，收进折叠区，
                  只有真的改过才默认展开 -->
@@ -1107,6 +1199,31 @@ section {
   border-radius: 4px;
   color: #8fb6d8;
   background: rgba(127, 232, 255, 0.07);
+}
+
+/* 激活码入网：新用户的第一入口，收进一个轻量的展开区 */
+.act-toggle {
+  margin: 2px 0 4px;
+}
+
+.btn.slim {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.act-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 0 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+
+.hint.ok {
+  color: #7ff0c4;
 }
 
 /* ── 按钮：主按钮 = accent 胶囊（气泡 cta 同款）── */

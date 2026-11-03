@@ -9,11 +9,12 @@
 
 ```
 ┌─ 产生（服务端）────────────────────────────────────────────┐
-│ POST /network/join 一次性签发 token（明文仅返回一次）         │
-│   · 现行真机族：net-…（48 位 hex）                           │
-│   · 设计稿/演示族：ect_… + 48 hex（24 字节）        ⚠️ 关系待确认 │
-│ 注册入口：甲=管理员建终端→手填；乙=8 位激活码(10 分钟)换 token   │
-│ 服务端只存 sha256(token)，数据库备份泄漏 ≠ 终端被接管           │
+│ 唯一签发入口：POST /network/join（邀请码恒时校验，fail-closed）  │
+│   · 格式 net-[0-9a-f]{48}（NETWORK_TOKEN_RE 单源）            │
+│   · 明文不落库——join 响应后服务端只存 sha256（network.json）    │
+│   · 签发即绑定：join 时生成 agent 记录（agent_id/名字/能力/hash）│
+│   · 无过期；轮换=重新 join；吊销=删 agent 记录                  │
+│   · 多终端并发使用：允许（实测）                                │
 └──────────────────────────────────────────────────────┘
               │ 用户粘进设置面板（settings.json）
               ▼
@@ -62,30 +63,65 @@
 > 字段都等于没有权限——服务端按 `token → terminal_id` 绑定连接，再按
 > `target` 决定推给谁。
 
-## 上行入口与署名兑出（服务端 d94a708 契约）
+## 上行入口与署名兑出（服务端 d94a708 契约 + 11-03 确认）
 
-| 入口 | 凭证 | 身份兑出 |
-|---|---|---|
-| WS 长连（桌面客户端） | net-token（本文件主链路） | terminal_id |
-| `/network/publish`（api-token 直发） | api-token | `agent_name`：凭证自动兑出（S3-action / term_alpha…）或发布者显式传 |
-| MCP 工具（agent 消息） | agent 凭证 | `agent_name`：同上，缺省退回 executor 名 |
-| webhook 桥（应用端点上报） | 路由 ID 白名单 | `node_alias` = `webhook:<路由id>` |
+| 入口 | 凭证（产生） | 验证 | 身份兑出 |
+|---|---|---|---|
+| WS 长连（桌面客户端） | net-token（/network/join 签发） | orchestrator WS connection 事件查 hash | terminal_id |
+| `/network/publish`（net-token 直发） | 同上 | 同一 hash 表 | `agent_name` = 入网注册名 |
+| `/network/publish`（api-token） | 管理台「API 令牌」页签发（明文落 api_tokens.json，可绑 session_id） | 同一验证点 | `agent_name` = 令牌备注名（S3-action…） |
+| MCP 工具 echocast_notify | 管理 bearer（.env） | 同上 | `agent_name` = executor 或 body 覆写 |
+| webhook 桥（应用端点上报） | 路由 secret（token / HMAC） | 路由白名单 | `node_alias` = `webhook:<路由id>` |
 
 客户端对 `agent_name` / `node_alias` **只呈现不验证**（属名小字，≤20 字符，
-超长掩码）——它们是署名，不是权限。
+超长掩码）——它们是署名，不是权限。body 里显式 `agent_name` 可覆盖为显示别名。
+
+## 令牌申请与发放（2026-11-03 对齐中）
+
+**现状（服务端自述）**：文档里的两种入口都**未落地**——实际流程是「找管理员要
+静态邀请码 → `/network/join` → 手抄 48 位 hex 填进设置」。邀请码是永不过期的
+共享密钥；没有审批、没有激活码、没有找回。这是「用户不知道在哪申请令牌」的根因。
+
+**正在落地（激活码流程，terminal-routing.md §4.1 乙）**：
+
+```
+管理员生成 8 位一次性激活码（10 分钟有效）
+        ↓ 任何途径发给用户（IM / 邮件）
+用户在客户端设置面板 →「没有令牌？用激活码入网」
+        ↓ 输码 +（可选）这台机器的别名
+客户端 POST {server}/api/terminals/activate
+        body {code, alias, device_fp, os, app_version}
+        ↓ 200
+{terminal:{id, alias, labels}, token}   ← token 只此一次返回
+        ↓ 客户端自动落设置并连接
+hello → hello_ack(term-…) → 气泡弹出来，全程不碰 hex
+```
+
+- 409 = 码已被用（一码一机）；410 = 码过期；404 = 服务端尚未升级出激活接口
+- 换机器/丢失：重新申请码入网；旧 terminal 由管理员在 agent 记录里删除（即吊销）
+- 多终端并发同一 token：允许（见上文生命周期）
+
+**客户端配套（v0.2.6）**：`terminal_activate` 命令 + 设置面板激活码入口 +
+错误文案带指引。REST 基址自动从 WS 地址推导（wss→https），用户只填一次服务端地址。
 
 ## ⚠️ 待服务端确认（对齐未闭环项）
 
-1. **net- 与 ect_ 前缀的关系**：`net-` 是现行真机族（2026-10-31 联调到手），
-   `ect_` 出现在设计稿与本地演示（ws-demo.py）。是两族并存还是 ect_ 已废弃？
-2. **token 生命周期**：是否设置过期？轮换流程（新旧并行窗口）？
-   4029 说明同一 terminal 同时只允许一条连接——token 与终端是否严格一对一绑定？
-3. **api-token 与 net-token 的签发/验证差异**：api-token（`api-…`）在哪一层
-   验证、scope 模型是什么（参照 Gitea 的 read/write scope？）。
-4. **HTTP 401 与 close 4001 的确切边界**：什么错误在握手层 HTTP 拒绝、什么
-   在升级后 close 拒绝（客户端两种都停连，但要写进排障手册）。
-5. **客户端 token 存储**：文档写「客户端存加密存储」，当前实现是
-   settings.json 明文。是否需要落 Windows DPAPI（CredWrite）？
+> 2026-11-03 已闭环：服务端逐条回复（他们侧文档 commit `049be18`，与本文配对），
+> 原五问的答案已合并进上文各节。保留此节作为变更记录。
+
+| 原问题 | 确认结果（2026-11-03） |
+|---|---|
+| net- / ect_ 前缀关系 | **唯一现行族是 `net-[0-9a-f]{48}`**（NETWORK_TOKEN_RE 单源）；`ect_` 是早期设计稿/演示写法，不在真实链路上 |
+| token 生命周期 | **无过期**，长期有效；轮换 = 重新 join（旧 token 走吊销）；吊销 = 管理端删 agent 记录（hash 消失即失效）；**多终端并发允许**（实测） |
+| api-token 验证 | 管理台「API 令牌」页签发（明文落 api_tokens.json，可绑 session_id）；`agent_name` 兑出为令牌备注名 |
+| HTTP 401 vs close 4001 | **WS 路径统一 4001**（upgrade 后 connection 事件里关）；**HTTP REST 统一 401**。客户端两条停止重连策略正好对应，无需改 |
+| 客户端明文存储 | 待办不变（是否落 DPAPI 由客户端排期） |
+
+⚠️ 两个已知偏差（服务端路线图）：
+1. **4003 当前不发**——吊销后的 token 表现为 4001（与填错同码）。客户端
+   「4001 停止重连」策略效果等价；要区分「吊销 vs 填错」需服务端加吊销标记。
+2. 验证点**唯一**在 orchestrator 的 WS connection 事件——bridge（TCP 透传）
+   与 NPM（代理）均无鉴权逻辑。排障时别在这两层找认证问题。
 
 ---
 2026-11-02 · 客户端起草 · 服务端口径来自交付文档与 bridge 会话对齐记录

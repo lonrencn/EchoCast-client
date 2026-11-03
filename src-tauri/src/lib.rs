@@ -1,3 +1,4 @@
+mod activate;
 mod buddy;
 mod conn;
 mod device;
@@ -145,6 +146,7 @@ pub fn run() {
             conn::debug_frames,
             conn::debug_clear,
             conn::terminal_get,
+            activate::terminal_activate,
             overlay::overlay_apply,
             localdemo::localdemo_start,
             localdemo::localdemo_status,
