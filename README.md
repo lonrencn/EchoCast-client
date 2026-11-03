@@ -93,7 +93,7 @@ ECHOCAST_WS_LOG=1 ./target/debug/echocast.exe
 
 通知契约见 [docs/notice-protocol.md](docs/notice-protocol.md)，终端路由与定向投递见
 [docs/terminal-routing.md](docs/terminal-routing.md)，授权机制（两端对齐稿）见
-[docs/auth.md](docs/auth.md)。
+[docs/auth.md](docs/auth.md)，**配置上手看 [docs/manual.md](docs/manual.md)（使用手册）**。
 
 **路由的关键约束**：身份只能来自凭证，不能来自报文。客户端不会、也不该在帧里
 自报 `terminal_id` —— 任何客户端可填的身份字段都等于没有权限。服务端按
