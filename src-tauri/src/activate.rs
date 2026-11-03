@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::settings;
 
@@ -151,10 +151,18 @@ pub async fn terminal_activate(
     .await
     .map_err(|e| format!("激活任务中断: {e}"))??;
 
-    // 成功：token 落设置、terminal_id 落缓存。用户全程不碰那串 hex。
+    // 成功：token 三处同步（内存态 + 磁盘 + 全窗口广播），与 settings_set
+    // 同语义。只写磁盘的坑：conn_connect 读的是内存态快照，旧 token 会让
+    // 重连仍以旧身份握手，激活看起来「没生效」。
     let mut s = settings::current(&app);
     s.token = out.token.clone();
+    if let Some(state) = app.try_state::<settings::SettingsState>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = s.clone();
+        }
+    }
     settings::save(&app, &s)?;
+    let _ = app.emit("ec:settings-updated", &s);
     settings::cache_terminal_id(&app, &out.terminal_id);
 
     Ok(out)

@@ -10,8 +10,8 @@
 ```
 ┌─ 产生（服务端）────────────────────────────────────────────┐
 │ 唯一签发入口：POST /network/join（邀请码恒时校验，fail-closed）  │
-│   · 格式 net-[0-9a-f]{48}（NETWORK_TOKEN_RE 单源）            │
-│   · 明文不落库——join 响应后服务端只存 sha256（network.json）    │
+│   · 激活码入口换发的 token 为 net-12 位短码（11-03 实测 16 字节总长）│
+│   · 明文不落库——join/activate 响应后服务端只存 sha256（network.json）│
 │   · 签发即绑定：join 时生成 agent 记录（agent_id/名字/能力/hash）│
 │   · 无过期；轮换=重新 join；吊销=删 agent 记录                  │
 │   · 多终端并发使用：允许（实测）                                │
