@@ -539,6 +539,7 @@ fn fatal_close(code: u16) -> Option<String> {
     match code {
         4001 => Some("token 无效或已过期，请在设置里重新填写".into()),
         4003 => Some("该终端已被管理员吊销，请联系服务端".into()),
+        4004 => Some("这个令牌属于另一台服务器（server_id 不匹配）——请核对服务端地址，或重新激活入网".into()),
         4029 => Some("终端已被其他实例占用".into()),
         _ => None,
     }
@@ -650,7 +651,11 @@ async fn pump(
 
 /// 握手请求。服务端在 connection 事件里比对 token_hash，
 /// 所以 token 必须放在 Upgrade 的请求头里，不能靠首帧再补。
-fn handshake(url: &str, token: &str) -> Result<tokio_tungstenite::tungstenite::http::Request<()>, String> {
+fn handshake(
+    url: &str,
+    token: &str,
+    server_id: Option<&str>,
+) -> Result<tokio_tungstenite::tungstenite::http::Request<()>, String> {
     let mut req = url
         .to_string()
         .into_client_request()
@@ -660,6 +665,13 @@ fn handshake(url: &str, token: &str) -> Result<tokio_tungstenite::tungstenite::h
         let value = HeaderValue::from_str(&format!("Bearer {token}"))
             .map_err(|_| "token 里有非法字符（换行或全角空格？）".to_string())?;
         req.headers_mut().insert("Authorization", value);
+    }
+    // v2 双向校验的桌面侧一半：把登记时 pin 住的 server_id 回传，
+    // 服务端比对不符会 close 4004——令牌属于另一台服务器。
+    if let Some(sid) = server_id.map(str::trim).filter(|s| !s.is_empty()) {
+        if let Ok(value) = HeaderValue::from_str(sid) {
+            req.headers_mut().insert("X-Server-Id", value);
+        }
     }
     Ok(req)
 }
@@ -756,8 +768,8 @@ async fn connect_loop(app: AppHandle, url: String) {
             },
         );
 
-        let token = settings::current(&app).token;
-        let req = match handshake(&url, &token) {
+        let cfg = settings::current(&app);
+        let req = match handshake(&url, &cfg.token, cfg.server_id.as_deref()) {
             Ok(r) => r,
             Err(message) => {
                 emit_status(&app, ConnStatus::Error { message, retry_in: backoff });

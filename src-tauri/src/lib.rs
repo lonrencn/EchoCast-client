@@ -147,6 +147,7 @@ pub fn run() {
             conn::debug_clear,
             conn::terminal_get,
             activate::terminal_activate,
+            activate::server_info,
             overlay::overlay_apply,
             localdemo::localdemo_start,
             localdemo::localdemo_status,

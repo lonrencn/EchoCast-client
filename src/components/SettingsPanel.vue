@@ -246,6 +246,28 @@ const activating = ref(false);
 const activateMsg = ref("");
 const activateOk = ref(false);
 
+/** 服务端自述的入网指引（可选能力；null = 服务端没提供，显示通用文案） */
+const srvInfo = ref<{ name?: string; join_doc?: string; contact?: string } | null>(null);
+
+async function loadServerInfo() {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    srvInfo.value = await invoke("server_info");
+  } catch {
+    srvInfo.value = null;
+  }
+}
+
+async function openJoinDoc() {
+  if (!srvInfo.value?.join_doc) return;
+  const { openExternal } = await import("../lib/open");
+  void openExternal(srvInfo.value.join_doc);
+}
+
+watch(showActivate, (on) => {
+  if (on) void loadServerInfo();
+});
+
 async function doActivate() {
   const code = activateCode.value.trim();
   if (activating.value || !code) return;
@@ -532,6 +554,24 @@ onBeforeUnmount(() => window.clearInterval(dbgTimer));
               </button>
             </div>
             <div v-if="showActivate" class="act-box">
+              <!-- 服务端自述的入网指引（可选能力）：内容部署方自定义，客户端只展示。
+                   拉不到就退回通用文案——不假设任何发放流程，这是两端解耦的边界。 -->
+              <div v-if="srvInfo" class="srv-info">
+                <span class="srv-name">{{ srvInfo.name || "该服务端" }} · 入网指引</span>
+                <button
+                  v-if="srvInfo.join_doc"
+                  class="btn ghost slim"
+                  type="button"
+                  title="打开入网指引"
+                  @click="openJoinDoc"
+                >
+                  {{ srvInfo.join_doc }} ↗
+                </button>
+                <span v-if="srvInfo.contact" class="srv-contact">{{ srvInfo.contact }}</span>
+              </div>
+              <p v-else class="hint">
+                申请令牌请联系该服务端的管理员（获取激活码或直接给令牌）。
+              </p>
               <label class="field">
                 <input
                   v-model="activateCode"
@@ -1220,6 +1260,23 @@ section {
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.025);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+
+/* 服务端自述的入网指引：一块来自部署方的说明，客户端原样展示 */
+.srv-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 11px;
+}
+
+.srv-name {
+  color: #8fb6d8;
+}
+
+.srv-contact {
+  color: #5d6c85;
 }
 
 .hint.ok {

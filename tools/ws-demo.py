@@ -409,6 +409,17 @@ def handle_http(sock, head: bytes, rest: bytes):
         http_reply(sock, 200, {"terminals": out})
         return
 
+    # 入网指引自述（可选能力，客户端只展示不解析流程）：
+    # GET /api/server-info → 部署方自定义的申请指引。返回 404 时客户端
+    # 优雅降级为通用文案「联系管理员」。
+    if path == "/api/server-info" and method == "GET":
+        http_reply(sock, 200, {
+            "name": "EchoCast 演示网关",
+            "join_doc": "http://127.0.0.1:8787/join.html",
+            "contact": "演示环境 · 找 ect_demo 管理员要激活码",
+        })
+        return
+
     if path.startswith("/api/tasks") and method == "POST":
         title = payload.get("title") or payload.get("task")
         if not title:

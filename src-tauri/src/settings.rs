@@ -73,6 +73,15 @@ pub struct AppSettings {
     pub endpoints: Vec<EndpointProfile>,
     /// 当前生效的端点 id。空串表示当前配置不属于任何已存端点。
     pub active_endpoint: String,
+    /// v2 登记后 pin 住的服务端标识符。重连时随 X-Server-Id 头回传，
+    /// 不匹配会被服务端 close 4004——防令牌误指到别的服务器。
+    /// 空表示该端点是 v1 签发制（无 pin）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_id: Option<String>,
+    /// v2 登记时本地自生成的设备标识符（明文只在本机）。
+    /// 轮换 = 本地重新生成后重新登记；换服务器登记时复用同一份。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_token: Option<String>,
 }
 
 /// 服务端的订阅 topic 没有通配，漏一个就少一路通知。
@@ -106,6 +115,8 @@ impl Default for AppSettings {
             sound_volume: 0.7,
             endpoints: Vec::new(),
             active_endpoint: String::new(),
+            server_id: None,
+            device_token: None,
         }
     }
 }
